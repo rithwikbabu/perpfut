@@ -1,0 +1,29 @@
+{
+  "portfolio_balances": [
+    {
+      "portfolio_uuid": "portfolio-123",
+      "balances": [
+        {
+          "asset": {
+            "asset_id": "USDC",
+            "asset_uuid": "asset-usdc",
+            "asset_name": "USDC",
+            "status": "ACTIVE",
+            "collateral_weight": "1.0"
+          },
+          "quantity": "12000.00",
+          "hold": "50.00",
+          "transfer_hold": "0.00",
+          "collateral_value": "12000.00",
+          "collateral_weight": "1.0",
+          "max_withdraw_amount": "11000.00",
+          "loan": "0.00",
+          "loan_collateral_requirement_usd": "0.00",
+          "pledged_quantity": "0.00",
+          "max_portfolio_transfer_amount": "11000.00"
+        }
+      ],
+      "is_margin_limit_reached": false
+    }
+  ]
+}

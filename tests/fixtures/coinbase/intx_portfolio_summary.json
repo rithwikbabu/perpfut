@@ -1,0 +1,35 @@
+{
+  "portfolios": [
+    {
+      "portfolio_uuid": "portfolio-123",
+      "collateral": "14750.53",
+      "position_notional": "1050.32",
+      "open_position_notional": "3010.02",
+      "pending_fees": "120.31",
+      "borrow": "4111.32",
+      "accrued_interest": "10.02",
+      "rolling_debt": "311.02",
+      "portfolio_initial_margin": "0.05",
+      "portfolio_maintenance_margin": "0.033",
+      "liquidation_percentage": "0.125"
+    }
+  ],
+  "summary": {
+    "unrealized_pnl": {
+      "value": "2953.01",
+      "currency": "USDC"
+    },
+    "total_balance": {
+      "value": "15751.60",
+      "currency": "USDC"
+    },
+    "buying_power": {
+      "value": "14964.02",
+      "currency": "USDC"
+    },
+    "max_withdrawal_amount": {
+      "value": "12000.00",
+      "currency": "USDC"
+    }
+  }
+}

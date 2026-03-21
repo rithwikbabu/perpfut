@@ -1,0 +1,102 @@
+{
+  "positions": [
+    {
+      "product_id": "BTC-PERP-INTX",
+      "product_uuid": "product-btc",
+      "portfolio_uuid": "portfolio-123",
+      "symbol": "BTC-PERP-INTX",
+      "vwap": {
+        "value": "70100.00",
+        "currency": "USDC"
+      },
+      "entry_vwap": {
+        "value": "70050.00",
+        "currency": "USDC"
+      },
+      "position_side": "LONG",
+      "margin_type": "CROSS",
+      "net_size": "0.25",
+      "buy_order_size": "0.00",
+      "sell_order_size": "0.00",
+      "im_contribution": "0.10",
+      "unrealized_pnl": {
+        "value": "150.50",
+        "currency": "USDC"
+      },
+      "mark_price": {
+        "value": "70600.00",
+        "currency": "USDC"
+      },
+      "liquidation_price": {
+        "value": "62000.00",
+        "currency": "USDC"
+      },
+      "leverage": "2.0",
+      "im_notional": {
+        "value": "1750.00",
+        "currency": "USDC"
+      },
+      "mm_notional": {
+        "value": "1200.00",
+        "currency": "USDC"
+      },
+      "position_notional": {
+        "value": "17650.00",
+        "currency": "USDC"
+      },
+      "aggregated_pnl": {
+        "value": "500.00",
+        "currency": "USDC"
+      }
+    },
+    {
+      "product_id": "ETH-PERP-INTX",
+      "product_uuid": "product-eth",
+      "portfolio_uuid": "portfolio-123",
+      "symbol": "ETH-PERP-INTX",
+      "vwap": {
+        "value": "3800.00",
+        "currency": "USDC"
+      },
+      "entry_vwap": {
+        "value": "3790.00",
+        "currency": "USDC"
+      },
+      "position_side": "SHORT",
+      "margin_type": "CROSS",
+      "net_size": "-2.00",
+      "buy_order_size": "0.00",
+      "sell_order_size": "0.00",
+      "im_contribution": "0.08",
+      "unrealized_pnl": {
+        "value": "25.00",
+        "currency": "USDC"
+      },
+      "mark_price": {
+        "value": "3785.00",
+        "currency": "USDC"
+      },
+      "liquidation_price": {
+        "value": "4500.00",
+        "currency": "USDC"
+      },
+      "leverage": "1.5",
+      "im_notional": {
+        "value": "500.00",
+        "currency": "USDC"
+      },
+      "mm_notional": {
+        "value": "300.00",
+        "currency": "USDC"
+      },
+      "position_notional": {
+        "value": "-7570.00",
+        "currency": "USDC"
+      },
+      "aggregated_pnl": {
+        "value": "80.00",
+        "currency": "USDC"
+      }
+    }
+  ]
+}

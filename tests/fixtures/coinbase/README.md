@@ -9,6 +9,9 @@ Recommended fixture groups:
 - `public_ticker_*.json`
 - `intx_portfolio_*.json`
 - `intx_positions_*.json`
+- `intx_balances_*.json`
 - `fills_*.json`
 
 Current public fixtures were captured from Coinbase on 2026-03-21.
+Current INTX private fixtures are doc-shaped representative payloads until live
+read-only capture is added with real credentials.

@@ -1,0 +1,39 @@
+{
+  "fills": [
+    {
+      "entry_id": "entry-1",
+      "trade_id": "trade-1",
+      "order_id": "order-1",
+      "trade_time": "2026-03-21T23:00:00.000000Z",
+      "trade_type": "FILL",
+      "price": "70500.00",
+      "size": "0.10",
+      "commission": "1.50",
+      "product_id": "BTC-PERP-INTX",
+      "sequence_timestamp": "2026-03-21T23:00:00.000001Z",
+      "liquidity_indicator": "TAKER",
+      "size_in_quote": false,
+      "user_id": "user-1",
+      "side": "BUY",
+      "retail_portfolio_id": "portfolio-123"
+    },
+    {
+      "entry_id": "entry-2",
+      "trade_id": "trade-2",
+      "order_id": "order-2",
+      "trade_time": "2026-03-21T23:01:00.000000Z",
+      "trade_type": "FILL",
+      "price": "3800.00",
+      "size": "1.00",
+      "commission": "0.80",
+      "product_id": "ETH-PERP-INTX",
+      "sequence_timestamp": "2026-03-21T23:01:00.000001Z",
+      "liquidity_indicator": "MAKER",
+      "size_in_quote": false,
+      "user_id": "user-1",
+      "side": "SELL",
+      "retail_portfolio_id": "portfolio-123"
+    }
+  ],
+  "cursor": null
+}

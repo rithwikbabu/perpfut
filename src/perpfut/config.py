@@ -55,11 +55,19 @@ class RuntimeConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class CoinbaseConfig:
+    api_key_id: str | None = None
+    api_key_secret: str | None = None
+    intx_portfolio_uuid: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class AppConfig:
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     strategy: StrategyConfig = field(default_factory=StrategyConfig)
     risk: RiskConfig = field(default_factory=RiskConfig)
     simulation: SimulationConfig = field(default_factory=SimulationConfig)
+    coinbase: CoinbaseConfig = field(default_factory=CoinbaseConfig)
 
     @property
     def max_abs_notional_usdc(self) -> float:
@@ -89,6 +97,11 @@ class AppConfig:
                 starting_collateral_usdc=_env_float("STARTING_COLLATERAL_USDC", 10_000.0),
                 max_leverage=_env_float("MAX_LEVERAGE", 2.0),
                 slippage_bps=_env_float("SLIPPAGE_BPS", 3.0),
+            ),
+            coinbase=CoinbaseConfig(
+                api_key_id=os.getenv("COINBASE_API_KEY_ID"),
+                api_key_secret=os.getenv("COINBASE_API_KEY_SECRET"),
+                intx_portfolio_uuid=os.getenv("COINBASE_INTX_PORTFOLIO_UUID"),
             ),
         )
 

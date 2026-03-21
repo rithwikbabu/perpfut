@@ -107,3 +107,83 @@ class CycleResult:
     state: PositionState
     order_intent: OrderIntent | None
     fill: SimulatedFill | None
+
+
+@dataclass(frozen=True, slots=True)
+class MoneyValue:
+    value: float
+    currency: str
+
+
+@dataclass(frozen=True, slots=True)
+class IntxPortfolioSummary:
+    portfolio_uuid: str
+    collateral: float
+    position_notional: float
+    open_position_notional: float
+    pending_fees: float
+    borrow: float
+    accrued_interest: float
+    rolling_debt: float
+    liquidation_percentage: float
+    buying_power: MoneyValue | None
+    total_balance: MoneyValue | None
+    unrealized_pnl: MoneyValue | None
+    max_withdrawal_amount: MoneyValue | None
+
+
+@dataclass(frozen=True, slots=True)
+class IntxAssetBalance:
+    portfolio_uuid: str
+    asset_id: str
+    asset_name: str
+    quantity: float
+    hold: float
+    transfer_hold: float
+    collateral_value: float
+    max_withdraw_amount: float
+
+
+@dataclass(frozen=True, slots=True)
+class IntxPosition:
+    product_id: str
+    portfolio_uuid: str
+    symbol: str
+    position_side: str
+    margin_type: str
+    net_size: float
+    leverage: float | None
+    vwap: MoneyValue | None
+    entry_vwap: MoneyValue | None
+    mark_price: MoneyValue | None
+    liquidation_price: MoneyValue | None
+    position_notional: MoneyValue | None
+    unrealized_pnl: MoneyValue | None
+    aggregated_pnl: MoneyValue | None
+
+
+@dataclass(frozen=True, slots=True)
+class ExchangeFill:
+    entry_id: str
+    trade_id: str
+    order_id: str
+    product_id: str
+    portfolio_uuid: str | None
+    side: str
+    price: float
+    size: float
+    commission: float
+    liquidity_indicator: str | None
+    trade_time: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class IntxReconciliationSnapshot:
+    portfolio_uuid: str
+    product_id: str | None
+    as_of: datetime
+    summary: IntxPortfolioSummary
+    balances: tuple[IntxAssetBalance, ...]
+    positions: tuple[IntxPosition, ...]
+    current_position: IntxPosition | None
+    recent_fills: tuple[ExchangeFill, ...]
