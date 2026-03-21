@@ -28,6 +28,14 @@ def build_parser() -> argparse.ArgumentParser:
     products_parser = subparsers.add_parser("products", help="list Coinbase perpetual products")
     products_parser.add_argument("--limit", type=int, default=10)
 
+    reconcile_parser = subparsers.add_parser(
+        "reconcile",
+        help="fetch and normalize read-only INTX portfolio state",
+    )
+    reconcile_parser.add_argument("--portfolio-uuid", default=None)
+    reconcile_parser.add_argument("--product-id", default=None)
+    reconcile_parser.add_argument("--fills-limit", type=int, default=50)
+
     live_parser = subparsers.add_parser("live", help="reserved live mode entrypoint")
     live_parser.add_argument("--product-id", default=None)
 
@@ -43,6 +51,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_paper(args)
     if args.command == "products":
         return _list_products(args)
+    if args.command == "reconcile":
+        return _run_reconcile(args)
     if args.command == "live":
         return _run_live(args)
 
@@ -78,10 +88,32 @@ def _list_products(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_reconcile(args: argparse.Namespace) -> int:
+    config = AppConfig.from_env()
+    portfolio_uuid = args.portfolio_uuid or config.coinbase.intx_portfolio_uuid
+    if not portfolio_uuid:
+        raise SystemExit("set COINBASE_INTX_PORTFOLIO_UUID or pass --portfolio-uuid")
+    if not config.coinbase.api_key_id or not config.coinbase.api_key_secret:
+        raise SystemExit("set COINBASE_API_KEY_ID and COINBASE_API_KEY_SECRET")
+
+    product_id = args.product_id or config.runtime.product_id
+    with CoinbasePrivateClient(
+        api_key_id=config.coinbase.api_key_id,
+        api_key_secret=config.coinbase.api_key_secret,
+    ) as client:
+        snapshot = client.reconcile_intx_portfolio(
+            portfolio_uuid=portfolio_uuid,
+            product_id=product_id,
+            fills_limit=args.fills_limit,
+        )
+
+    print(json.dumps(asdict(snapshot), indent=2, sort_keys=True, default=str))
+    return 0
+
+
 def _run_live(args: argparse.Namespace) -> int:
     if os.getenv("PERPFUT_ENABLE_LIVE") != "1":
         raise SystemExit("live mode is gated; set PERPFUT_ENABLE_LIVE=1 only after implementation")
 
     _ = args.product_id
-    CoinbasePrivateClient().preview_market_order()
-    return 0
+    raise SystemExit("live mode remains unimplemented; Step 4 adds preview and execution")

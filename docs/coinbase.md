@@ -39,10 +39,12 @@ those saved payloads before public adapter changes are merged.
 ## Auth Notes
 
 - Coinbase App APIs require CDP secret API keys.
-- Advanced Trade SDK usage requires ECDSA keys.
+- Coinbase App authentication for Advanced Trade currently requires ECDSA keys.
 - JWTs are request-scoped and expire after 2 minutes.
 - The repo should eventually own a dedicated token provider abstraction rather
   than scattering JWT construction across the codebase.
+- Required env vars for read-only INTX access are `COINBASE_API_KEY_ID`,
+  `COINBASE_API_KEY_SECRET`, and `COINBASE_INTX_PORTFOLIO_UUID`.
 
 ## INTX Fields Worth Logging
 
@@ -54,3 +56,7 @@ When live mode is added, prefer exchange-reported values where available:
 - `liquidation_price`
 - `buying_power`
 - `total_balance`
+
+The repo now includes a read-only `reconcile` CLI path that should remain safe:
+it authenticates, fetches INTX portfolio summary, balances, positions, and fills,
+then prints normalized exchange truth without placing or previewing orders.
