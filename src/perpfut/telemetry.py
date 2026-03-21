@@ -58,7 +58,7 @@ def _jsonable(value: Any) -> Any:
 class ArtifactStore:
     """Append-only run artifacts for debugging and replay."""
 
-    def __init__(self, run_dir: Path):
+    def __init__(self, run_dir: Path, *, resumed_from_run_id: str | None = None):
         self.run_dir = run_dir
         self.manifest_path = run_dir / "manifest.json"
         self.config_path = run_dir / "config.json"
@@ -67,13 +67,14 @@ class ArtifactStore:
         self.positions_path = run_dir / "positions.ndjson"
         self.state_path = run_dir / "state.json"
         self.run_id = run_dir.name
+        self.resumed_from_run_id = resumed_from_run_id
 
     @classmethod
-    def create(cls, base_dir: Path) -> "ArtifactStore":
+    def create(cls, base_dir: Path, *, resumed_from_run_id: str | None = None) -> "ArtifactStore":
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         run_dir = base_dir / f"{timestamp}_{_resolve_git_sha()}"
         run_dir.mkdir(parents=True, exist_ok=False)
-        return cls(run_dir)
+        return cls(run_dir, resumed_from_run_id=resumed_from_run_id)
 
     def write_metadata(self, config: AppConfig) -> None:
         manifest = {
@@ -82,6 +83,7 @@ class ArtifactStore:
             "mode": config.runtime.mode,
             "product_id": config.runtime.product_id,
             "git_sha": _resolve_git_sha(),
+            "resumed_from_run_id": self.resumed_from_run_id,
         }
         self._write_json(self.manifest_path, manifest)
         self._write_json(self.config_path, config)

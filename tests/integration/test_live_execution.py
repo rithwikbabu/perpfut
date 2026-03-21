@@ -257,3 +257,33 @@ def test_live_executor_cancels_existing_open_and_pending_orders_on_drawdown_halt
     assert trading_client.cancelled is True
     events = store.events_path.read_text(encoding="utf-8")
     assert "max_daily_drawdown" in events
+
+
+def test_live_executor_logs_resume_mismatch_and_persists_exchange_truth(tmp_path) -> None:
+    config = AppConfig.from_env().with_overrides(
+        iterations=1,
+        interval_seconds=0,
+        runs_dir=tmp_path,
+    )
+    store = ArtifactStore.create(tmp_path, resumed_from_run_id="prior-run")
+    store.write_metadata(config)
+    trading_client = FakeTradingClient()
+
+    executor = LiveExecutor(
+        config=config,
+        market_data=FakeMarketData(),
+        trading_client=trading_client,
+        artifact_store=store,
+        portfolio_uuid="portfolio-123",
+        resume_state={"run_id": "prior-run", "current_position_notional_usdc": 500.0},
+    )
+
+    executor.run_cycle(1)
+
+    events = store.events_path.read_text(encoding="utf-8")
+    state = store.state_path.read_text(encoding="utf-8")
+    manifest = store.manifest_path.read_text(encoding="utf-8")
+    assert "resume_loaded" in events
+    assert "resume_mismatch" in events
+    assert "exchange_snapshot" in state
+    assert "prior-run" in manifest

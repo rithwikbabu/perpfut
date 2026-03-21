@@ -82,12 +82,15 @@ class LiveExecutor:
         trading_client: LiveTradingClient,
         artifact_store: ArtifactStore,
         portfolio_uuid: str,
+        resume_state: dict | None = None,
     ):
         self.config = config
         self.market_data = market_data
         self.trading_client = trading_client
         self.artifact_store = artifact_store
         self.portfolio_uuid = portfolio_uuid
+        self.resume_state = resume_state
+        self._resume_logged = False
 
     def run(self) -> None:
         for cycle_number in range(1, self.config.runtime.iterations + 1):
@@ -98,6 +101,18 @@ class LiveExecutor:
     def run_cycle(self, cycle_number: int) -> None:
         cycle_id = f"cycle-{cycle_number:04d}"
         product_id = self.config.runtime.product_id
+        if self.resume_state is not None and not self._resume_logged:
+            self.artifact_store.append_event(
+                "resume_loaded",
+                {
+                    "run_id": self.artifact_store.run_id,
+                    "cycle_id": cycle_id,
+                    "mode": "live",
+                    "product_id": product_id,
+                    "resume_state": self.resume_state,
+                },
+            )
+            self._resume_logged = True
         market = self.market_data.fetch_market(
             product_id,
             candle_limit=self.config.strategy.lookback_candles,
@@ -130,6 +145,7 @@ class LiveExecutor:
             else 0.0
         )
         current_position = current_notional_usdc / self.config.max_abs_notional_usdc
+        self._log_resume_mismatch_if_needed(cycle_id, current_notional_usdc)
 
         signal = compute_signal(
             market.candles,
@@ -149,6 +165,12 @@ class LiveExecutor:
             max_daily_drawdown_usdc=self.config.risk.max_daily_drawdown_usdc,
         ):
             self._halt(cycle_id, reason="max_daily_drawdown", cancel_open_orders=True)
+            self._write_live_state(
+                cycle_id,
+                exchange_state=exchange_state,
+                current_notional_usdc=current_notional_usdc,
+                current_position=current_position,
+            )
             return
 
         order_intent = build_order_intent(
@@ -171,6 +193,12 @@ class LiveExecutor:
                     "target_position": target_position,
                     "current_position": current_position,
                 },
+            )
+            self._write_live_state(
+                cycle_id,
+                exchange_state=exchange_state,
+                current_notional_usdc=current_notional_usdc,
+                current_position=current_position,
             )
             return
 
@@ -201,6 +229,12 @@ class LiveExecutor:
                 preview=preview,
                 cancel_open_orders=True,
             )
+            self._write_live_state(
+                cycle_id,
+                exchange_state=exchange_state,
+                current_notional_usdc=current_notional_usdc,
+                current_position=current_position,
+            )
             return
 
         submission = self.trading_client.place_market_order(
@@ -228,6 +262,12 @@ class LiveExecutor:
                 order_intent=order_intent,
                 submission=submission,
                 cancel_open_orders=True,
+            )
+            self._write_live_state(
+                cycle_id,
+                exchange_state=exchange_state,
+                current_notional_usdc=current_notional_usdc,
+                current_position=current_position,
             )
             return
 
@@ -259,15 +299,13 @@ class LiveExecutor:
                 },
             )
 
-        self.artifact_store.write_state(
-            {
-                "run_id": self.artifact_store.run_id,
-                "cycle_id": cycle_id,
-                "mode": "live",
-                "product_id": product_id,
-                "order_id": submission.order_id,
-                "client_order_id": submission.client_order_id,
-            }
+        self._write_live_state(
+            cycle_id,
+            exchange_state=exchange_state,
+            current_notional_usdc=current_notional_usdc,
+            current_position=current_position,
+            last_submission=submission,
+            last_order_status=order_status,
         )
 
     def _halt(
@@ -307,4 +345,47 @@ class LiveExecutor:
                 "submission": submission,
                 "cancel_results": cancel_results,
             },
+        )
+
+    def _log_resume_mismatch_if_needed(self, cycle_id: str, current_notional_usdc: float) -> None:
+        if self.resume_state is None:
+            return
+        previous_notional = float(self.resume_state.get("current_position_notional_usdc") or 0.0)
+        if abs(previous_notional - current_notional_usdc) < 1e-9:
+            return
+        self.artifact_store.append_event(
+            "resume_mismatch",
+            {
+                "run_id": self.artifact_store.run_id,
+                "cycle_id": cycle_id,
+                "mode": "live",
+                "product_id": self.config.runtime.product_id,
+                "checkpoint_position_notional_usdc": previous_notional,
+                "exchange_position_notional_usdc": current_notional_usdc,
+            },
+        )
+
+    def _write_live_state(
+        self,
+        cycle_id: str,
+        *,
+        exchange_state: IntxReconciliationSnapshot,
+        current_notional_usdc: float,
+        current_position: float,
+        last_submission: object | None = None,
+        last_order_status: object | None = None,
+    ) -> None:
+        self.artifact_store.write_state(
+            {
+                "run_id": self.artifact_store.run_id,
+                "cycle_id": cycle_id,
+                "mode": "live",
+                "product_id": self.config.runtime.product_id,
+                "portfolio_uuid": self.portfolio_uuid,
+                "current_position": current_position,
+                "current_position_notional_usdc": current_notional_usdc,
+                "exchange_snapshot": exchange_state,
+                "last_submission": last_submission,
+                "last_order_status": last_order_status,
+            }
         )
