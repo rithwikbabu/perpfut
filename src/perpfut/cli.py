@@ -116,5 +116,4 @@ def _run_live(args: argparse.Namespace) -> int:
         raise SystemExit("live mode is gated; set PERPFUT_ENABLE_LIVE=1 only after implementation")
 
     _ = args.product_id
-    CoinbasePrivateClient().preview_market_order()
-    return 0
+    raise SystemExit("live mode remains unimplemented; Step 4 adds preview and execution")
