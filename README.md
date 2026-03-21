@@ -52,3 +52,8 @@ python3 -m perpfut paper --iterations 1
 2. Save real Coinbase payloads into `tests/fixtures/coinbase/`.
 3. Add parser contract tests for INTX portfolio and position endpoints.
 4. Add a kill switch and explicit reconciliation before each live cycle.
+
+## Operator Docs
+
+- Runbook: `docs/runbook.md`
+- MVP readiness gates: `docs/mvp-readiness.md`

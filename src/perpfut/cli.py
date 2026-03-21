@@ -13,6 +13,7 @@ from .domain import Mode
 from .engine import PaperEngine
 from .exchange_coinbase import CoinbasePrivateClient, CoinbasePublicClient
 from .live_execution import LiveExecutor
+from .preflight import run_preflight
 from .run_history import find_latest_run, load_run_manifest, load_run_state, summarize_runs
 from .telemetry import ArtifactStore, configure_logging
 
@@ -55,6 +56,13 @@ def build_parser() -> argparse.ArgumentParser:
     live_parser.add_argument("--interval-seconds", type=int, default=None)
     live_parser.add_argument("--runs-dir", type=Path, default=None)
 
+    preflight_parser = subparsers.add_parser("preflight", help="run readiness checks")
+    preflight_parser.add_argument("--mode", choices=["paper", "live"], required=True)
+    preflight_parser.add_argument("--product-id", default=None)
+    preflight_parser.add_argument("--portfolio-uuid", default=None)
+    preflight_parser.add_argument("--runs-dir", type=Path, default=None)
+    preflight_parser.add_argument("--preview-quantity", type=float, default=None)
+
     return parser
 
 
@@ -73,6 +81,8 @@ def main(argv: list[str] | None = None) -> int:
         return _show_state(args)
     if args.command == "reconcile":
         return _run_reconcile(args)
+    if args.command == "preflight":
+        return _run_preflight(args)
     if args.command == "live":
         return _run_live(args)
 
@@ -152,6 +162,40 @@ def _run_reconcile(args: argparse.Namespace) -> int:
 
     print(json.dumps(asdict(snapshot), indent=2, sort_keys=True, default=str))
     return 0
+
+
+def _run_preflight(args: argparse.Namespace) -> int:
+    config = AppConfig.from_env().with_overrides(
+        product_id=args.product_id,
+        runs_dir=args.runs_dir,
+    )
+    portfolio_uuid = args.portfolio_uuid or config.coinbase.intx_portfolio_uuid
+
+    with CoinbasePublicClient() as public_client:
+        if args.mode == "live" and config.coinbase.api_key_id and config.coinbase.api_key_secret:
+            with CoinbasePrivateClient(
+                api_key_id=config.coinbase.api_key_id,
+                api_key_secret=config.coinbase.api_key_secret,
+            ) as private_client:
+                report = run_preflight(
+                    config=config,
+                    mode=args.mode,
+                    public_client=public_client,
+                    private_client=private_client,
+                    portfolio_uuid=portfolio_uuid,
+                    preview_quantity=args.preview_quantity,
+                )
+        else:
+            report = run_preflight(
+                config=config,
+                mode=args.mode,
+                public_client=public_client,
+                portfolio_uuid=portfolio_uuid,
+                preview_quantity=args.preview_quantity,
+            )
+
+    print(json.dumps(asdict(report), indent=2, sort_keys=True))
+    return 0 if report.ready else 1
 
 
 def _run_live(args: argparse.Namespace) -> int:
