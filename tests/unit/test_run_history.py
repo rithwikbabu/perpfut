@@ -98,3 +98,30 @@ def test_find_latest_run_can_filter_live_over_newer_paper(tmp_path) -> None:
     )
 
     assert latest == live
+
+
+def test_find_latest_run_skips_corrupted_state_when_state_required(tmp_path) -> None:
+    broken = tmp_path / "20260103T000000000000Z_broken"
+    broken.mkdir()
+    (broken / "manifest.json").write_text(
+        json.dumps({"run_id": broken.name, "mode": "live", "product_id": "BTC-PERP-INTX"}),
+        encoding="utf-8",
+    )
+    (broken / "state.json").write_text("{", encoding="utf-8")
+
+    healthy = tmp_path / "20260102T000000000000Z_healthy"
+    healthy.mkdir()
+    (healthy / "manifest.json").write_text(
+        json.dumps({"run_id": healthy.name, "mode": "live", "product_id": "BTC-PERP-INTX"}),
+        encoding="utf-8",
+    )
+    (healthy / "state.json").write_text(json.dumps({"run_id": healthy.name}), encoding="utf-8")
+
+    latest = find_latest_run(
+        tmp_path,
+        mode="live",
+        product_id="BTC-PERP-INTX",
+        require_state=True,
+    )
+
+    assert latest == healthy

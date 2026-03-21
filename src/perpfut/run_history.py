@@ -35,7 +35,7 @@ def find_latest_run(
         manifest_path = run_dir / "manifest.json"
         if not manifest_path.exists():
             continue
-        if require_state and not (run_dir / "state.json").exists():
+        if require_state and not _has_readable_state(run_dir):
             continue
         manifest = load_run_manifest(run_dir)
         if mode is not None and manifest.get("mode") != mode:
@@ -64,3 +64,14 @@ def summarize_runs(base_dir: Path, *, limit: int = 10) -> list[dict[str, Any]]:
 
 def _load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _has_readable_state(run_dir: Path) -> bool:
+    state_path = run_dir / "state.json"
+    if not state_path.exists():
+        return False
+    try:
+        _load_json(state_path)
+    except (OSError, json.JSONDecodeError):
+        return False
+    return True
