@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 import httpx
 
@@ -20,6 +21,15 @@ class PerpetualProduct:
     price: float
     funding_rate: float | None
     max_leverage: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class TickerSnapshot:
+    product_id: str
+    as_of: datetime
+    last_price: float
+    best_bid: float
+    best_ask: float
 
 
 class CoinbaseExchangeError(RuntimeError):
@@ -58,40 +68,17 @@ class CoinbasePublicClient:
             },
         )
         response.raise_for_status()
-        payload = response.json()
-
-        products: list[PerpetualProduct] = []
-        for raw in payload.get("products", []):
-            future_details = raw.get("future_product_details") or {}
-            perpetual_details = future_details.get("perpetual_details") or {}
-            products.append(
-                PerpetualProduct(
-                    product_id=raw["product_id"],
-                    display_name=raw.get("display_name", raw["product_id"]),
-                    price=float(raw.get("mid_market_price") or raw.get("price") or 0.0),
-                    funding_rate=_optional_float(
-                        perpetual_details.get("funding_rate") or future_details.get("funding_rate")
-                    ),
-                    max_leverage=_optional_float(perpetual_details.get("max_leverage")),
-                )
-            )
-        return products
+        return parse_perpetual_products(response.json())
 
     def fetch_market(self, product_id: str, *, candle_limit: int) -> MarketSnapshot:
         candles = self.fetch_candles(product_id, limit=candle_limit)
         ticker = self.fetch_ticker(product_id)
-        trades = ticker.get("trades") or []
-        if not trades:
-            raise CoinbaseExchangeError(f"no trades returned for {product_id}")
-
-        last_trade = trades[0]
-        as_of = _parse_iso8601(last_trade["time"])
         return MarketSnapshot(
             product_id=product_id,
-            as_of=as_of,
-            last_price=float(last_trade["price"]),
-            best_bid=float(ticker.get("best_bid") or 0.0),
-            best_ask=float(ticker.get("best_ask") or 0.0),
+            as_of=ticker.as_of,
+            last_price=ticker.last_price,
+            best_bid=ticker.best_bid,
+            best_ask=ticker.best_ask,
             candles=tuple(candles),
         )
 
@@ -108,32 +95,15 @@ class CoinbasePublicClient:
             },
         )
         response.raise_for_status()
-        payload = response.json()
+        return parse_candles(response.json(), product_id=product_id)
 
-        candles = []
-        for raw in payload.get("candles", []):
-            candles.append(
-                Candle(
-                    start=datetime.fromtimestamp(int(raw["start"]), tz=timezone.utc),
-                    low=float(raw["low"]),
-                    high=float(raw["high"]),
-                    open=float(raw["open"]),
-                    close=float(raw["close"]),
-                    volume=float(raw["volume"]),
-                )
-            )
-        candles.sort(key=lambda candle: candle.start)
-        if not candles:
-            raise CoinbaseExchangeError(f"no candles returned for {product_id}")
-        return candles
-
-    def fetch_ticker(self, product_id: str) -> dict:
+    def fetch_ticker(self, product_id: str) -> TickerSnapshot:
         response = self._client.get(
             f"/market/products/{product_id}/ticker",
             params={"limit": 1},
         )
         response.raise_for_status()
-        return response.json()
+        return parse_ticker(response.json(), product_id=product_id)
 
 
 class CoinbasePrivateClient:
@@ -152,6 +122,87 @@ class CoinbasePrivateClient:
 def _parse_iso8601(value: str) -> datetime:
     normalized = value.replace("Z", "+00:00")
     return datetime.fromisoformat(normalized)
+
+
+def parse_perpetual_products(payload: dict[str, Any]) -> list[PerpetualProduct]:
+    raw_products = payload.get("products")
+    if not isinstance(raw_products, list):
+        raise CoinbaseExchangeError("products payload is missing the products list")
+
+    products: list[PerpetualProduct] = []
+    for raw in raw_products:
+        try:
+            future_details = raw.get("future_product_details") or {}
+            perpetual_details = future_details.get("perpetual_details") or {}
+            product_id = raw["product_id"]
+            price = raw.get("mid_market_price") or raw.get("price")
+            if price in (None, ""):
+                raise CoinbaseExchangeError(f"missing price for product {product_id}")
+
+            products.append(
+                PerpetualProduct(
+                    product_id=product_id,
+                    display_name=raw.get("display_name", product_id),
+                    price=float(price),
+                    funding_rate=_optional_float(
+                        perpetual_details.get("funding_rate") or future_details.get("funding_rate")
+                    ),
+                    max_leverage=_optional_float(perpetual_details.get("max_leverage")),
+                )
+            )
+        except KeyError as exc:
+            raise CoinbaseExchangeError("product payload is missing a required field") from exc
+        except ValueError as exc:
+            raise CoinbaseExchangeError("product payload contains an invalid numeric field") from exc
+
+    return products
+
+
+def parse_candles(payload: dict[str, Any], *, product_id: str) -> list[Candle]:
+    raw_candles = payload.get("candles")
+    if not isinstance(raw_candles, list) or not raw_candles:
+        raise CoinbaseExchangeError(f"no candles returned for {product_id}")
+
+    candles: list[Candle] = []
+    for raw in raw_candles:
+        try:
+            candles.append(
+                Candle(
+                    start=datetime.fromtimestamp(int(raw["start"]), tz=timezone.utc),
+                    low=float(raw["low"]),
+                    high=float(raw["high"]),
+                    open=float(raw["open"]),
+                    close=float(raw["close"]),
+                    volume=float(raw["volume"]),
+                )
+            )
+        except KeyError as exc:
+            raise CoinbaseExchangeError(f"candle payload is missing a required field for {product_id}") from exc
+        except ValueError as exc:
+            raise CoinbaseExchangeError(f"candle payload contains an invalid value for {product_id}") from exc
+
+    candles.sort(key=lambda candle: candle.start)
+    return candles
+
+
+def parse_ticker(payload: dict[str, Any], *, product_id: str) -> TickerSnapshot:
+    trades = payload.get("trades")
+    if not isinstance(trades, list) or not trades:
+        raise CoinbaseExchangeError(f"no trades returned for {product_id}")
+
+    last_trade = trades[0]
+    try:
+        return TickerSnapshot(
+            product_id=product_id,
+            as_of=_parse_iso8601(last_trade["time"]),
+            last_price=float(last_trade["price"]),
+            best_bid=float(payload.get("best_bid") or 0.0),
+            best_ask=float(payload.get("best_ask") or 0.0),
+        )
+    except KeyError as exc:
+        raise CoinbaseExchangeError(f"ticker payload is missing a required field for {product_id}") from exc
+    except ValueError as exc:
+        raise CoinbaseExchangeError(f"ticker payload contains an invalid value for {product_id}") from exc
 
 
 def _optional_float(value: str | None) -> float | None:

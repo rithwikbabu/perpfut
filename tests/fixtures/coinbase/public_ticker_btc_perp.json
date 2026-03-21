@@ -1,0 +1,17 @@
+{
+  "trades": [
+    {
+      "trade_id": "558407083922292744",
+      "product_id": "BTC-PERP-INTX",
+      "price": "70218.6",
+      "size": "0.0008",
+      "time": "2026-03-21T23:10:23.509098Z",
+      "side": "SELL",
+      "bid": "",
+      "ask": "",
+      "exchange": "neptune"
+    }
+  ],
+  "best_bid": "70218.5",
+  "best_ask": "70218.6"
+}
