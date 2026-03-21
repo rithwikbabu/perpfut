@@ -37,6 +37,8 @@ def build_parser() -> argparse.ArgumentParser:
     state_parser = subparsers.add_parser("state", help="show the latest or named run state")
     state_parser.add_argument("--run-id", default=None)
     state_parser.add_argument("--runs-dir", type=Path, default=None)
+    state_parser.add_argument("--mode", choices=["paper", "live"], default="live")
+    state_parser.add_argument("--product-id", default=None)
 
     reconcile_parser = subparsers.add_parser(
         "reconcile",
@@ -117,7 +119,12 @@ def _show_state(args: argparse.Namespace) -> int:
     if args.run_id:
         run_dir = runs_dir / args.run_id
     else:
-        run_dir = find_latest_run(runs_dir)
+        run_dir = find_latest_run(
+            runs_dir,
+            mode=args.mode,
+            product_id=args.product_id,
+            require_state=True,
+        )
         if run_dir is None:
             raise SystemExit("no runs found")
     print(json.dumps(load_run_state(run_dir), indent=2, sort_keys=True))
@@ -168,6 +175,7 @@ def _run_live(args: argparse.Namespace) -> int:
         config.runtime.runs_dir,
         mode="live",
         product_id=config.runtime.product_id,
+        require_state=True,
     )
     resume_state = load_run_state(resume_run) if resume_run is not None else None
     resumed_from_run_id = load_run_manifest(resume_run).get("run_id") if resume_run is not None else None

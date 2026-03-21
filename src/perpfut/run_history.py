@@ -29,10 +29,13 @@ def find_latest_run(
     *,
     mode: str | None = None,
     product_id: str | None = None,
+    require_state: bool = False,
 ) -> Path | None:
     for run_dir in list_runs(base_dir):
         manifest_path = run_dir / "manifest.json"
         if not manifest_path.exists():
+            continue
+        if require_state and not (run_dir / "state.json").exists():
             continue
         manifest = load_run_manifest(run_dir)
         if mode is not None and manifest.get("mode") != mode:

@@ -45,3 +45,56 @@ def test_summarize_runs_includes_resume_metadata(tmp_path) -> None:
     summaries = summarize_runs(tmp_path, limit=5)
 
     assert summaries[0]["resumed_from_run_id"] == "older-run"
+
+
+def test_find_latest_run_skips_manifest_only_runs_when_state_required(tmp_path) -> None:
+    interrupted = tmp_path / "20260103T000000000000Z_interrupted"
+    interrupted.mkdir()
+    (interrupted / "manifest.json").write_text(
+        json.dumps({"run_id": interrupted.name, "mode": "live", "product_id": "BTC-PERP-INTX"}),
+        encoding="utf-8",
+    )
+
+    complete = tmp_path / "20260102T000000000000Z_complete"
+    complete.mkdir()
+    (complete / "manifest.json").write_text(
+        json.dumps({"run_id": complete.name, "mode": "live", "product_id": "BTC-PERP-INTX"}),
+        encoding="utf-8",
+    )
+    (complete / "state.json").write_text(json.dumps({"run_id": complete.name}), encoding="utf-8")
+
+    latest = find_latest_run(
+        tmp_path,
+        mode="live",
+        product_id="BTC-PERP-INTX",
+        require_state=True,
+    )
+
+    assert latest == complete
+
+
+def test_find_latest_run_can_filter_live_over_newer_paper(tmp_path) -> None:
+    paper = tmp_path / "20260103T000000000000Z_paper"
+    paper.mkdir()
+    (paper / "manifest.json").write_text(
+        json.dumps({"run_id": paper.name, "mode": "paper", "product_id": "BTC-PERP-INTX"}),
+        encoding="utf-8",
+    )
+    (paper / "state.json").write_text(json.dumps({"run_id": paper.name}), encoding="utf-8")
+
+    live = tmp_path / "20260102T000000000000Z_live"
+    live.mkdir()
+    (live / "manifest.json").write_text(
+        json.dumps({"run_id": live.name, "mode": "live", "product_id": "BTC-PERP-INTX"}),
+        encoding="utf-8",
+    )
+    (live / "state.json").write_text(json.dumps({"run_id": live.name}), encoding="utf-8")
+
+    latest = find_latest_run(
+        tmp_path,
+        mode="live",
+        product_id="BTC-PERP-INTX",
+        require_state=True,
+    )
+
+    assert latest == live
