@@ -120,6 +120,29 @@ def test_run_preflight_live_requires_preview_quantity(monkeypatch, tmp_path) -> 
     assert "--preview-quantity" in preview_check.detail
 
 
+def test_run_preflight_live_requires_private_client(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("PERPFUT_ENABLE_LIVE", "1")
+    monkeypatch.setenv("COINBASE_API_KEY_ID", "key-id")
+    monkeypatch.setenv("COINBASE_API_KEY_SECRET", "secret")
+    config = AppConfig.from_env().with_overrides(runs_dir=tmp_path)
+
+    report = run_preflight(
+        config=config,
+        mode="live",
+        public_client=FakePublicClient(),
+        portfolio_uuid="portfolio-123",
+        preview_quantity=0.001,
+    )
+
+    assert report.ready is False
+    private_reconcile = next(check for check in report.checks if check.name == "private_reconcile")
+    order_preview = next(check for check in report.checks if check.name == "order_preview")
+    assert private_reconcile.ok is False
+    assert order_preview.ok is False
+    assert "private Coinbase client" in private_reconcile.detail
+    assert "private Coinbase client" in order_preview.detail
+
+
 def test_run_preflight_reports_non_writable_runs_dir(tmp_path, monkeypatch) -> None:
     runs_dir = tmp_path / "runs"
     runs_dir.mkdir()

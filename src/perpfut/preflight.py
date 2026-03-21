@@ -98,7 +98,22 @@ def run_preflight(
                 detail="A portfolio UUID is required for INTX live mode",
             )
         )
-        if private_client is not None and portfolio_uuid:
+        if private_client is None:
+            checks.append(
+                PreflightCheck(
+                    name="private_reconcile",
+                    ok=False,
+                    detail="a private Coinbase client is required for live preflight",
+                )
+            )
+            checks.append(
+                PreflightCheck(
+                    name="order_preview",
+                    ok=False,
+                    detail="a private Coinbase client is required for live preflight",
+                )
+            )
+        elif portfolio_uuid:
             checks.append(_check_private_reconcile(private_client, portfolio_uuid, config.runtime.product_id))
             if preview_quantity is None:
                 checks.append(
