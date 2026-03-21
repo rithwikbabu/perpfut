@@ -1,0 +1,9 @@
+{
+  "results": [
+    {
+      "success": true,
+      "failure_reason": "UNKNOWN_CANCEL_FAILURE_REASON",
+      "order_id": "order-123"
+    }
+  ]
+}

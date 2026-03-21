@@ -20,6 +20,7 @@ those saved payloads before public adapter changes are merged.
 - `POST /orders`
 - `POST /orders/preview`
 - `GET /orders/historical/fills`
+- `GET /orders/historical/{order_id}`
 - `GET /orders/historical/batch`
 - `POST /orders/batch_cancel`
 - `GET /intx/portfolio`
@@ -60,3 +61,11 @@ When live mode is added, prefer exchange-reported values where available:
 The repo now includes a read-only `reconcile` CLI path that should remain safe:
 it authenticates, fetches INTX portfolio summary, balances, positions, and fills,
 then prints normalized exchange truth without placing or previewing orders.
+
+The live path remains intentionally narrow:
+
+- explicit env gate via `PERPFUT_ENABLE_LIVE=1`
+- one cycle by default unless `--iterations` is passed
+- preview before submit
+- market IOC orders only
+- batch cancel only for halt/recovery paths

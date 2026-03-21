@@ -187,3 +187,42 @@ class IntxReconciliationSnapshot:
     positions: tuple[IntxPosition, ...]
     current_position: IntxPosition | None
     recent_fills: tuple[ExchangeFill, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class OrderPreview:
+    preview_id: str
+    product_id: str
+    side: str
+    order_total: float | None
+    commission_total: float | None
+    errs: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class OrderSubmission:
+    order_id: str
+    client_order_id: str
+    product_id: str
+    side: str
+    success: bool
+    failure_reason: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class OrderStatusSnapshot:
+    order_id: str
+    client_order_id: str
+    product_id: str
+    side: str
+    status: str
+    filled_size: float
+    average_filled_price: float | None
+    total_fees: float
+
+
+@dataclass(frozen=True, slots=True)
+class CancelOrderResult:
+    order_id: str
+    success: bool
+    failure_reason: str | None

@@ -11,6 +11,7 @@ import httpx
 import jwt
 
 from .domain import (
+    CancelOrderResult,
     Candle,
     ExchangeFill,
     IntxAssetBalance,
@@ -18,6 +19,9 @@ from .domain import (
     IntxPosition,
     MarketSnapshot,
     MoneyValue,
+    OrderPreview,
+    OrderStatusSnapshot,
+    OrderSubmission,
 )
 from .reconciliation import reconcile_intx_state
 
@@ -152,11 +156,56 @@ class CoinbasePrivateClient:
     def close(self) -> None:
         self._client.close()
 
-    def preview_market_order(self, *_: object, **__: object) -> None:
-        raise NotImplementedError("live Coinbase execution is not scaffolded yet")
+    def preview_market_order(
+        self,
+        *,
+        portfolio_uuid: str,
+        product_id: str,
+        side: str,
+        quantity: float,
+        client_order_id: str,
+    ) -> OrderPreview:
+        payload = self._post(
+            "/orders/preview",
+            json_body=_build_market_ioc_order_body(
+                portfolio_uuid=portfolio_uuid,
+                product_id=product_id,
+                side=side,
+                quantity=quantity,
+                client_order_id=client_order_id,
+            ),
+        )
+        return parse_order_preview(payload, product_id=product_id, side=side)
 
-    def place_market_order(self, *_: object, **__: object) -> None:
-        raise NotImplementedError("live Coinbase execution is not scaffolded yet")
+    def place_market_order(
+        self,
+        *,
+        portfolio_uuid: str,
+        product_id: str,
+        side: str,
+        quantity: float,
+        client_order_id: str,
+    ) -> OrderSubmission:
+        payload = self._post(
+            "/orders",
+            json_body=_build_market_ioc_order_body(
+                portfolio_uuid=portfolio_uuid,
+                product_id=product_id,
+                side=side,
+                quantity=quantity,
+                client_order_id=client_order_id,
+            ),
+        )
+        return parse_order_submission(
+            payload,
+            product_id=product_id,
+            side=side,
+            client_order_id=client_order_id,
+        )
+
+    def get_order(self, order_id: str) -> OrderStatusSnapshot:
+        payload = self._get(f"/orders/historical/{order_id}")
+        return parse_order_status(payload)
 
     def get_intx_portfolio_summary(self, portfolio_uuid: str) -> IntxPortfolioSummary:
         payload = self._get(f"/intx/portfolio/{portfolio_uuid}")
@@ -174,16 +223,42 @@ class CoinbasePrivateClient:
         self,
         *,
         product_id: str | None = None,
+        order_id: str | None = None,
         limit: int = 50,
     ) -> list[ExchangeFill]:
         payload = self._get(
             "/orders/historical/fills",
             params={
                 "product_id": product_id,
+                "order_id": order_id,
                 "limit": limit,
             },
         )
         return parse_order_fills(payload)
+
+    def list_orders(
+        self,
+        *,
+        product_id: str | None = None,
+        order_status: str | None = None,
+        limit: int = 50,
+    ) -> list[OrderStatusSnapshot]:
+        payload = self._get(
+            "/orders/historical/batch",
+            params={
+                "product_id": product_id,
+                "order_status": order_status,
+                "limit": limit,
+            },
+        )
+        return parse_order_list(payload)
+
+    def cancel_orders(self, order_ids: list[str]) -> list[CancelOrderResult]:
+        payload = self._post(
+            "/orders/batch_cancel",
+            json_body={"order_ids": order_ids},
+        )
+        return parse_cancel_results(payload)
 
     def reconcile_intx_portfolio(
         self,
@@ -210,6 +285,18 @@ class CoinbasePrivateClient:
             path,
             params={key: value for key, value in (params or {}).items() if value is not None},
             headers=self._auth_headers("GET", path),
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def _post(self, path: str, *, json_body: dict[str, Any]) -> dict[str, Any]:
+        response = self._client.post(
+            path,
+            json=json_body,
+            headers={
+                **self._auth_headers("POST", path),
+                "Content-Type": "application/json",
+            },
         )
         response.raise_for_status()
         return response.json()
@@ -469,6 +556,89 @@ def parse_order_fills(payload: dict[str, Any]) -> list[ExchangeFill]:
     return fills
 
 
+def parse_order_preview(payload: dict[str, Any], *, product_id: str, side: str) -> OrderPreview:
+    try:
+        return OrderPreview(
+            preview_id=payload["preview_id"],
+            product_id=product_id,
+            side=side,
+            order_total=_optional_float(payload.get("order_total")),
+            commission_total=_optional_float(payload.get("commission_total")),
+            errs=tuple(payload.get("errs") or []),
+        )
+    except KeyError as exc:
+        raise CoinbaseExchangeError("order preview payload is missing a required field") from exc
+    except ValueError as exc:
+        raise CoinbaseExchangeError("order preview payload contains an invalid value") from exc
+
+
+def parse_order_submission(
+    payload: dict[str, Any],
+    *,
+    product_id: str,
+    side: str,
+    client_order_id: str,
+) -> OrderSubmission:
+    try:
+        success = bool(payload["success"])
+        order_id = payload["order_id"]
+        success_response = payload.get("success_response") or {}
+        return OrderSubmission(
+            order_id=order_id,
+            client_order_id=success_response.get("client_order_id", client_order_id),
+            product_id=success_response.get("product_id", product_id),
+            side=success_response.get("side", side),
+            success=success,
+            failure_reason=payload.get("failure_reason"),
+        )
+    except KeyError as exc:
+        raise CoinbaseExchangeError("order submission payload is missing a required field") from exc
+
+
+def parse_order_status(payload: dict[str, Any]) -> OrderStatusSnapshot:
+    raw_order = payload.get("order") or payload
+    try:
+        return OrderStatusSnapshot(
+            order_id=raw_order["order_id"],
+            client_order_id=raw_order["client_order_id"],
+            product_id=raw_order["product_id"],
+            side=raw_order["side"],
+            status=raw_order["status"],
+            filled_size=float(raw_order.get("filled_size") or 0.0),
+            average_filled_price=_optional_float(raw_order.get("average_filled_price")),
+            total_fees=float(raw_order.get("total_fees") or 0.0),
+        )
+    except KeyError as exc:
+        raise CoinbaseExchangeError("order status payload is missing a required field") from exc
+    except ValueError as exc:
+        raise CoinbaseExchangeError("order status payload contains an invalid value") from exc
+
+
+def parse_order_list(payload: dict[str, Any]) -> list[OrderStatusSnapshot]:
+    raw_orders = payload.get("orders")
+    if not isinstance(raw_orders, list):
+        raise CoinbaseExchangeError("orders payload is missing the orders list")
+    return [parse_order_status({"order": raw_order}) for raw_order in raw_orders]
+
+
+def parse_cancel_results(payload: dict[str, Any]) -> list[CancelOrderResult]:
+    raw_results = payload.get("results")
+    if not isinstance(raw_results, list):
+        raise CoinbaseExchangeError("cancel payload is missing the results list")
+
+    try:
+        return [
+            CancelOrderResult(
+                order_id=result["order_id"],
+                success=bool(result["success"]),
+                failure_reason=result.get("failure_reason"),
+            )
+            for result in raw_results
+        ]
+    except KeyError as exc:
+        raise CoinbaseExchangeError("cancel payload is missing a required field") from exc
+
+
 def _optional_float(value: str | None) -> float | None:
     if value in (None, ""):
         return None
@@ -482,3 +652,28 @@ def _optional_money(value: dict[str, str] | None) -> MoneyValue | None:
         value=float(value["value"]),
         currency=value["currency"],
     )
+
+
+def _build_market_ioc_order_body(
+    *,
+    portfolio_uuid: str,
+    product_id: str,
+    side: str,
+    quantity: float,
+    client_order_id: str,
+) -> dict[str, Any]:
+    return {
+        "client_order_id": client_order_id,
+        "product_id": product_id,
+        "side": side,
+        "retail_portfolio_id": portfolio_uuid,
+        "order_configuration": {
+            "market_market_ioc": {
+                "base_size": _format_base_size(quantity),
+            }
+        },
+    }
+
+
+def _format_base_size(quantity: float) -> str:
+    return f"{quantity:.8f}".rstrip("0").rstrip(".")

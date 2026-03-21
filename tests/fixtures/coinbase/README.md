@@ -11,6 +11,10 @@ Recommended fixture groups:
 - `intx_positions_*.json`
 - `intx_balances_*.json`
 - `fills_*.json`
+- `order_preview_*.json`
+- `order_create_*.json`
+- `order_status_*.json`
+- `order_cancel_*.json`
 
 Current public fixtures were captured from Coinbase on 2026-03-21.
 Current INTX private fixtures are doc-shaped representative payloads until live
