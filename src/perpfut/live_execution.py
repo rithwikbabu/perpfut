@@ -282,12 +282,15 @@ class LiveExecutor:
     ) -> None:
         cancel_results = []
         if cancel_open_orders:
-            open_orders = self.trading_client.list_orders(
-                product_id=self.config.runtime.product_id,
-                order_status="OPEN",
-                limit=50,
-            )
-            open_order_ids = [order.order_id for order in open_orders]
+            open_order_ids = []
+            for order_status in ("OPEN", "PENDING"):
+                open_orders = self.trading_client.list_orders(
+                    product_id=self.config.runtime.product_id,
+                    order_status=order_status,
+                    limit=50,
+                )
+                open_order_ids.extend(order.order_id for order in open_orders)
+            open_order_ids = sorted(set(open_order_ids))
             if open_order_ids:
                 cancel_results = self.trading_client.cancel_orders(open_order_ids)
 

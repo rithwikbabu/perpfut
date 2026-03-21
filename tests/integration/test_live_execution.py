@@ -148,7 +148,9 @@ class FakeTradingClient:
         ]
 
     def list_orders(self, *, product_id: str | None = None, order_status: str | None = None, limit: int = 50):
-        return self.open_orders
+        if order_status is None:
+            return self.open_orders
+        return [order for order in self.open_orders if order.status == order_status]
 
     def cancel_orders(self, order_ids: list[str]):
         self.cancelled = True
@@ -208,7 +210,7 @@ def test_live_executor_halts_on_preview_error_without_submit(tmp_path) -> None:
     assert "preview_rejected" in events
 
 
-def test_live_executor_cancels_existing_open_orders_on_drawdown_halt(tmp_path) -> None:
+def test_live_executor_cancels_existing_open_and_pending_orders_on_drawdown_halt(tmp_path) -> None:
     config = AppConfig.from_env().with_overrides(
         iterations=1,
         interval_seconds=0,
@@ -226,7 +228,20 @@ def test_live_executor_cancels_existing_open_orders_on_drawdown_halt(tmp_path) -
         average_filled_price=None,
         total_fees=0.0,
     )
-    trading_client = FakeTradingClient(total_balance=9700.0, open_orders=[open_order])
+    pending_order = OrderStatusSnapshot(
+        order_id="order-pending-1",
+        client_order_id="client-pending-1",
+        product_id="BTC-PERP-INTX",
+        side="SELL",
+        status="PENDING",
+        filled_size=0.0,
+        average_filled_price=None,
+        total_fees=0.0,
+    )
+    trading_client = FakeTradingClient(
+        total_balance=9700.0,
+        open_orders=[open_order, pending_order],
+    )
 
     executor = LiveExecutor(
         config=config,
