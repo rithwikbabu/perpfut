@@ -1,0 +1,17 @@
+{
+  "best_ask": "70224.2",
+  "best_bid": "70224.1",
+  "trades": [
+    {
+      "ask": "",
+      "bid": "",
+      "exchange": "neptune",
+      "price": "70224.1",
+      "product_id": "BTC-PERP-INTX",
+      "side": "BUY",
+      "size": "0.1",
+      "time": "2026-03-21T23:07:02.716603Z",
+      "trade_id": "558406241735409684"
+    }
+  ]
+}

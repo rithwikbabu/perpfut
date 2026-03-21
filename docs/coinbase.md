@@ -11,6 +11,17 @@ This repo is scoped around Coinbase Advanced Trade and its INTX perpetuals path.
 The public endpoints are cached for 1 second unless `cache-control: no-cache` is
 set.
 
+The repo keeps real public payload fixtures under `tests/fixtures/coinbase/` and
+expects public parsing to be covered by fixture-backed tests rather than only
+live network calls.
+
+Current normalization assumptions for the public adapter:
+
+- product discovery reads the `products` list from the response root
+- candle payloads may arrive newest-first and are sorted oldest-first locally
+- ticker parsing uses the first trade for `last_price` and `as_of`
+- missing numeric or timestamp fields should raise exchange-specific parse errors
+
 ## Private Endpoints Planned Next
 
 - `POST /orders`
