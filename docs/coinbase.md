@@ -11,6 +11,10 @@ This repo is scoped around Coinbase Advanced Trade and its INTX perpetuals path.
 The public endpoints are cached for 1 second unless `cache-control: no-cache` is
 set.
 
+The repo keeps raw public fixtures for products, candles, and ticker responses
+under `tests/fixtures/coinbase/`. Parsing logic should be validated against
+those saved payloads before public adapter changes are merged.
+
 ## Private Endpoints Planned Next
 
 - `POST /orders`

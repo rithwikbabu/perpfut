@@ -10,3 +10,5 @@ Recommended fixture groups:
 - `intx_portfolio_*.json`
 - `intx_positions_*.json`
 - `fills_*.json`
+
+Current public fixtures were captured from Coinbase on 2026-03-21.
