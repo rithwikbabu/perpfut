@@ -236,6 +236,23 @@ class CoinbasePrivateClient:
         )
         return parse_order_fills(payload)
 
+    def list_orders(
+        self,
+        *,
+        product_id: str | None = None,
+        order_status: str | None = None,
+        limit: int = 50,
+    ) -> list[OrderStatusSnapshot]:
+        payload = self._get(
+            "/orders/historical/batch",
+            params={
+                "product_id": product_id,
+                "order_status": order_status,
+                "limit": limit,
+            },
+        )
+        return parse_order_list(payload)
+
     def cancel_orders(self, order_ids: list[str]) -> list[CancelOrderResult]:
         payload = self._post(
             "/orders/batch_cancel",
@@ -595,6 +612,13 @@ def parse_order_status(payload: dict[str, Any]) -> OrderStatusSnapshot:
         raise CoinbaseExchangeError("order status payload is missing a required field") from exc
     except ValueError as exc:
         raise CoinbaseExchangeError("order status payload contains an invalid value") from exc
+
+
+def parse_order_list(payload: dict[str, Any]) -> list[OrderStatusSnapshot]:
+    raw_orders = payload.get("orders")
+    if not isinstance(raw_orders, list):
+        raise CoinbaseExchangeError("orders payload is missing the orders list")
+    return [parse_order_status({"order": raw_order}) for raw_order in raw_orders]
 
 
 def parse_cancel_results(payload: dict[str, Any]) -> list[CancelOrderResult]:

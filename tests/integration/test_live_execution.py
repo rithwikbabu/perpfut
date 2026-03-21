@@ -42,8 +42,16 @@ class FakeMarketData:
 
 
 class FakeTradingClient:
-    def __init__(self, *, preview_errs: tuple[str, ...] = ()):
+    def __init__(
+        self,
+        *,
+        preview_errs: tuple[str, ...] = (),
+        total_balance: float = 10000.0,
+        open_orders: list[OrderStatusSnapshot] | None = None,
+    ):
         self.preview_errs = preview_errs
+        self.total_balance = total_balance
+        self.open_orders = open_orders or []
         self.submitted = False
         self.cancelled = False
 
@@ -79,7 +87,7 @@ class FakeTradingClient:
                 rolling_debt=0.0,
                 liquidation_percentage=0.0,
                 buying_power=MoneyValue(value=10000.0, currency="USDC"),
-                total_balance=MoneyValue(value=10000.0, currency="USDC"),
+                total_balance=MoneyValue(value=self.total_balance, currency="USDC"),
                 unrealized_pnl=MoneyValue(value=0.0, currency="USDC"),
                 max_withdrawal_amount=MoneyValue(value=10000.0, currency="USDC"),
             ),
@@ -139,6 +147,9 @@ class FakeTradingClient:
             )
         ]
 
+    def list_orders(self, *, product_id: str | None = None, order_status: str | None = None, limit: int = 50):
+        return self.open_orders
+
     def cancel_orders(self, order_ids: list[str]):
         self.cancelled = True
         return []
@@ -195,3 +206,39 @@ def test_live_executor_halts_on_preview_error_without_submit(tmp_path) -> None:
     events = store.events_path.read_text(encoding="utf-8")
     assert "halt" in events
     assert "preview_rejected" in events
+
+
+def test_live_executor_cancels_existing_open_orders_on_drawdown_halt(tmp_path) -> None:
+    config = AppConfig.from_env().with_overrides(
+        iterations=1,
+        interval_seconds=0,
+        runs_dir=tmp_path,
+    )
+    store = ArtifactStore.create(config.runtime.runs_dir)
+    store.write_metadata(config)
+    open_order = OrderStatusSnapshot(
+        order_id="order-open-1",
+        client_order_id="client-open-1",
+        product_id="BTC-PERP-INTX",
+        side="BUY",
+        status="OPEN",
+        filled_size=0.0,
+        average_filled_price=None,
+        total_fees=0.0,
+    )
+    trading_client = FakeTradingClient(total_balance=9700.0, open_orders=[open_order])
+
+    executor = LiveExecutor(
+        config=config,
+        market_data=FakeMarketData(),
+        trading_client=trading_client,
+        artifact_store=store,
+        portfolio_uuid="portfolio-123",
+    )
+
+    executor.run_cycle(1)
+
+    assert trading_client.submitted is False
+    assert trading_client.cancelled is True
+    events = store.events_path.read_text(encoding="utf-8")
+    assert "max_daily_drawdown" in events

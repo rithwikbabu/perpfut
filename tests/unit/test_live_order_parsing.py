@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from perpfut.exchange_coinbase import (
+    parse_order_list,
     parse_cancel_results,
     parse_order_preview,
     parse_order_status,
@@ -55,3 +56,10 @@ def test_parse_cancel_results_fixture() -> None:
     assert len(results) == 1
     assert results[0].success is True
     assert results[0].order_id == "order-123"
+
+
+def test_parse_order_list_fixture() -> None:
+    statuses = parse_order_list({"orders": [_load_fixture("order_status_filled.json")["order"]]})
+
+    assert len(statuses) == 1
+    assert statuses[0].status == "FILLED"

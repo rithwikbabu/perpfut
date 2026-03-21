@@ -58,6 +58,15 @@ class LiveTradingClient(Protocol):
     ):
         ...
 
+    def list_orders(
+        self,
+        *,
+        product_id: str | None = None,
+        order_status: str | None = None,
+        limit: int = 50,
+    ):
+        ...
+
     def cancel_orders(self, order_ids: list[str]):
         ...
 
@@ -139,7 +148,7 @@ class LiveExecutor:
             equity_usdc=total_balance,
             max_daily_drawdown_usdc=self.config.risk.max_daily_drawdown_usdc,
         ):
-            self._halt(cycle_id, reason="max_daily_drawdown")
+            self._halt(cycle_id, reason="max_daily_drawdown", cancel_open_orders=True)
             return
 
         order_intent = build_order_intent(
@@ -185,7 +194,13 @@ class LiveExecutor:
             },
         )
         if preview.errs:
-            self._halt(cycle_id, reason="preview_rejected", order_intent=order_intent, preview=preview)
+            self._halt(
+                cycle_id,
+                reason="preview_rejected",
+                order_intent=order_intent,
+                preview=preview,
+                cancel_open_orders=True,
+            )
             return
 
         submission = self.trading_client.place_market_order(
@@ -207,7 +222,13 @@ class LiveExecutor:
             },
         )
         if not submission.success:
-            self._halt(cycle_id, reason="submit_rejected", order_intent=order_intent, submission=submission)
+            self._halt(
+                cycle_id,
+                reason="submit_rejected",
+                order_intent=order_intent,
+                submission=submission,
+                cancel_open_orders=True,
+            )
             return
 
         order_status = self.trading_client.get_order(submission.order_id)
@@ -257,7 +278,19 @@ class LiveExecutor:
         order_intent: OrderIntent | None = None,
         preview: OrderPreview | None = None,
         submission: object | None = None,
+        cancel_open_orders: bool = False,
     ) -> None:
+        cancel_results = []
+        if cancel_open_orders:
+            open_orders = self.trading_client.list_orders(
+                product_id=self.config.runtime.product_id,
+                order_status="OPEN",
+                limit=50,
+            )
+            open_order_ids = [order.order_id for order in open_orders]
+            if open_order_ids:
+                cancel_results = self.trading_client.cancel_orders(open_order_ids)
+
         self.artifact_store.append_event(
             "halt",
             {
@@ -269,5 +302,6 @@ class LiveExecutor:
                 "order_intent": order_intent,
                 "preview": preview,
                 "submission": submission,
+                "cancel_results": cancel_results,
             },
         )
