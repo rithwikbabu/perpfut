@@ -25,6 +25,7 @@ Live sequence:
 2. Run read-only reconcile: `python3 -m perpfut reconcile --portfolio-uuid "$COINBASE_INTX_PORTFOLIO_UUID"`
 3. Run live preflight with preview only:
    `python3 -m perpfut preflight --mode live --portfolio-uuid "$COINBASE_INTX_PORTFOLIO_UUID" --preview-quantity 0.001`
+   Live preflight intentionally exits non-zero if `--preview-quantity` is omitted.
 4. Inspect latest live checkpoint if resuming:
    `python3 -m perpfut state --mode live`
 5. Run one live cycle first:

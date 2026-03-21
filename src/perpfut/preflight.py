@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -99,7 +100,15 @@ def run_preflight(
         )
         if private_client is not None and portfolio_uuid:
             checks.append(_check_private_reconcile(private_client, portfolio_uuid, config.runtime.product_id))
-            if preview_quantity is not None:
+            if preview_quantity is None:
+                checks.append(
+                    PreflightCheck(
+                        name="order_preview",
+                        ok=False,
+                        detail="pass --preview-quantity to validate the live order preview path",
+                    )
+                )
+            else:
                 checks.append(
                     _check_preview(
                         private_client,
@@ -121,6 +130,8 @@ def run_preflight(
 def _check_runs_dir(runs_dir: Path) -> PreflightCheck:
     try:
         runs_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=runs_dir, prefix=".preflight-"):
+            pass
     except OSError as exc:
         return PreflightCheck(name="runs_dir", ok=False, detail=str(exc))
     return PreflightCheck(name="runs_dir", ok=True, detail=f"writable: {runs_dir}")

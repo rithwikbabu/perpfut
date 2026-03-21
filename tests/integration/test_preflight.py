@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
-
 from perpfut.config import AppConfig
+from perpfut.domain import Candle
 from perpfut.domain import (
     IntxPortfolioSummary,
     IntxReconciliationSnapshot,
@@ -8,8 +8,8 @@ from perpfut.domain import (
     MoneyValue,
     OrderPreview,
 )
+from perpfut import preflight as preflight_module
 from perpfut.preflight import run_preflight
-from perpfut.domain import Candle
 
 
 class FakePublicClient:
@@ -98,3 +98,45 @@ def test_run_preflight_live_reports_ready_with_private_checks(monkeypatch, tmp_p
         "private_reconcile",
         "order_preview",
     }
+
+
+def test_run_preflight_live_requires_preview_quantity(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("PERPFUT_ENABLE_LIVE", "1")
+    monkeypatch.setenv("COINBASE_API_KEY_ID", "key-id")
+    monkeypatch.setenv("COINBASE_API_KEY_SECRET", "secret")
+    config = AppConfig.from_env().with_overrides(runs_dir=tmp_path)
+
+    report = run_preflight(
+        config=config,
+        mode="live",
+        public_client=FakePublicClient(),
+        private_client=FakePrivateClient(),
+        portfolio_uuid="portfolio-123",
+    )
+
+    assert report.ready is False
+    preview_check = next(check for check in report.checks if check.name == "order_preview")
+    assert preview_check.ok is False
+    assert "--preview-quantity" in preview_check.detail
+
+
+def test_run_preflight_reports_non_writable_runs_dir(tmp_path, monkeypatch) -> None:
+    runs_dir = tmp_path / "runs"
+    runs_dir.mkdir()
+
+    def deny_temporary_directory(*args, **kwargs):
+        raise PermissionError("read-only runs dir")
+
+    monkeypatch.setattr(preflight_module.tempfile, "TemporaryDirectory", deny_temporary_directory)
+    config = AppConfig.from_env().with_overrides(runs_dir=runs_dir)
+
+    report = run_preflight(
+        config=config,
+        mode="paper",
+        public_client=FakePublicClient(),
+    )
+
+    assert report.ready is False
+    runs_check = next(check for check in report.checks if check.name == "runs_dir")
+    assert runs_check.ok is False
+    assert "read-only runs dir" in runs_check.detail
