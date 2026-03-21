@@ -13,6 +13,7 @@ from .domain import Mode
 from .engine import PaperEngine
 from .exchange_coinbase import CoinbasePrivateClient, CoinbasePublicClient
 from .live_execution import LiveExecutor
+from .run_history import find_latest_run, load_run_manifest, load_run_state, summarize_runs
 from .telemetry import ArtifactStore, configure_logging
 
 
@@ -28,6 +29,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     products_parser = subparsers.add_parser("products", help="list Coinbase perpetual products")
     products_parser.add_argument("--limit", type=int, default=10)
+
+    runs_parser = subparsers.add_parser("runs", help="list recent run artifacts")
+    runs_parser.add_argument("--limit", type=int, default=10)
+    runs_parser.add_argument("--runs-dir", type=Path, default=None)
+
+    state_parser = subparsers.add_parser("state", help="show the latest or named run state")
+    state_parser.add_argument("--run-id", default=None)
+    state_parser.add_argument("--runs-dir", type=Path, default=None)
+    state_parser.add_argument("--mode", choices=["paper", "live"], default="live")
+    state_parser.add_argument("--product-id", default=None)
 
     reconcile_parser = subparsers.add_parser(
         "reconcile",
@@ -56,6 +67,10 @@ def main(argv: list[str] | None = None) -> int:
         return _run_paper(args)
     if args.command == "products":
         return _list_products(args)
+    if args.command == "runs":
+        return _list_runs(args)
+    if args.command == "state":
+        return _show_state(args)
     if args.command == "reconcile":
         return _run_reconcile(args)
     if args.command == "live":
@@ -90,6 +105,29 @@ def _list_products(args: argparse.Namespace) -> int:
     with CoinbasePublicClient() as client:
         products = client.list_perpetual_products(limit=args.limit)
     print(json.dumps([asdict(product) for product in products], indent=2, sort_keys=True))
+    return 0
+
+
+def _list_runs(args: argparse.Namespace) -> int:
+    runs_dir = args.runs_dir or AppConfig.from_env().runtime.runs_dir
+    print(json.dumps(summarize_runs(runs_dir, limit=args.limit), indent=2, sort_keys=True))
+    return 0
+
+
+def _show_state(args: argparse.Namespace) -> int:
+    runs_dir = args.runs_dir or AppConfig.from_env().runtime.runs_dir
+    if args.run_id:
+        run_dir = runs_dir / args.run_id
+    else:
+        run_dir = find_latest_run(
+            runs_dir,
+            mode=args.mode,
+            product_id=args.product_id,
+            require_state=True,
+        )
+        if run_dir is None:
+            raise SystemExit("no runs found")
+    print(json.dumps(load_run_state(run_dir), indent=2, sort_keys=True))
     return 0
 
 
@@ -133,7 +171,19 @@ def _run_live(args: argparse.Namespace) -> int:
     if not config.coinbase.api_key_id or not config.coinbase.api_key_secret:
         raise SystemExit("set COINBASE_API_KEY_ID and COINBASE_API_KEY_SECRET")
 
-    artifact_store = ArtifactStore.create(config.runtime.runs_dir)
+    resume_run = find_latest_run(
+        config.runtime.runs_dir,
+        mode="live",
+        product_id=config.runtime.product_id,
+        require_state=True,
+    )
+    resume_state = load_run_state(resume_run) if resume_run is not None else None
+    resumed_from_run_id = load_run_manifest(resume_run).get("run_id") if resume_run is not None else None
+
+    artifact_store = ArtifactStore.create(
+        config.runtime.runs_dir,
+        resumed_from_run_id=resumed_from_run_id,
+    )
     artifact_store.write_metadata(config)
 
     with CoinbasePublicClient() as market_data, CoinbasePrivateClient(
@@ -146,6 +196,7 @@ def _run_live(args: argparse.Namespace) -> int:
             trading_client=trading_client,
             artifact_store=artifact_store,
             portfolio_uuid=portfolio_uuid,
+            resume_state=resume_state,
         )
         executor.run()
 

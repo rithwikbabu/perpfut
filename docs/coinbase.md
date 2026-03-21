@@ -69,3 +69,8 @@ The live path remains intentionally narrow:
 - preview before submit
 - market IOC orders only
 - batch cancel only for halt/recovery paths
+
+The run artifact layer now distinguishes between local checkpoints and exchange
+truth. Live startup loads the latest matching local checkpoint, reconciles
+against Coinbase before trading, and logs a `resume_mismatch` event if the saved
+notional and exchange-reported notional diverge.
