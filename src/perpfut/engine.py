@@ -72,13 +72,14 @@ class PaperEngine:
             max_daily_drawdown_usdc=self.config.risk.max_daily_drawdown_usdc,
         )
         if not halted:
-            order_intent = self._build_order_intent(
+            order_intent = build_order_intent(
                 market=market,
                 target_position=target_position,
                 current_position=current_position,
                 current_notional_usdc=marked_state.position_notional_usdc,
                 target_notional_usdc=target_notional_usdc,
                 delta_notional_usdc=delta_notional_usdc,
+                config=self.config,
             )
 
         if order_intent is not None:
@@ -104,33 +105,34 @@ class PaperEngine:
         self.artifact_store.record_cycle(cycle_result)
         return cycle_result
 
-    def _build_order_intent(
-        self,
-        *,
-        market: MarketSnapshot,
-        target_position: float,
-        current_position: float,
-        current_notional_usdc: float,
-        target_notional_usdc: float,
-        delta_notional_usdc: float,
-    ) -> OrderIntent | None:
-        if not should_rebalance(
-            target_position=target_position,
-            current_position=current_position,
-            delta_notional_usdc=delta_notional_usdc,
-            rebalance_threshold=self.config.risk.rebalance_threshold,
-            min_trade_notional_usdc=self.config.risk.min_trade_notional_usdc,
-        ):
-            return None
 
-        side = "BUY" if delta_notional_usdc > 0.0 else "SELL"
-        quantity = abs(delta_notional_usdc) / market.mid_price
-        return OrderIntent(
-            product_id=market.product_id,
-            side=side,
-            quantity=quantity,
-            target_position=target_position,
-            target_notional_usdc=target_notional_usdc,
-            current_notional_usdc=current_notional_usdc,
-            reason="rebalance_to_target",
-        )
+def build_order_intent(
+    *,
+    market: MarketSnapshot,
+    target_position: float,
+    current_position: float,
+    current_notional_usdc: float,
+    target_notional_usdc: float,
+    delta_notional_usdc: float,
+    config: AppConfig,
+) -> OrderIntent | None:
+    if not should_rebalance(
+        target_position=target_position,
+        current_position=current_position,
+        delta_notional_usdc=delta_notional_usdc,
+        rebalance_threshold=config.risk.rebalance_threshold,
+        min_trade_notional_usdc=config.risk.min_trade_notional_usdc,
+    ):
+        return None
+
+    side = "BUY" if delta_notional_usdc > 0.0 else "SELL"
+    quantity = abs(delta_notional_usdc) / market.mid_price
+    return OrderIntent(
+        product_id=market.product_id,
+        side=side,
+        quantity=quantity,
+        target_position=target_position,
+        target_notional_usdc=target_notional_usdc,
+        current_notional_usdc=current_notional_usdc,
+        reason="rebalance_to_target",
+    )

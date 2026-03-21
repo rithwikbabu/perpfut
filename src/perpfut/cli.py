@@ -12,6 +12,7 @@ from .config import AppConfig
 from .domain import Mode
 from .engine import PaperEngine
 from .exchange_coinbase import CoinbasePrivateClient, CoinbasePublicClient
+from .live_execution import LiveExecutor
 from .telemetry import ArtifactStore, configure_logging
 
 
@@ -38,6 +39,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     live_parser = subparsers.add_parser("live", help="reserved live mode entrypoint")
     live_parser.add_argument("--product-id", default=None)
+    live_parser.add_argument("--portfolio-uuid", default=None)
+    live_parser.add_argument("--iterations", type=int, default=None)
+    live_parser.add_argument("--interval-seconds", type=int, default=None)
+    live_parser.add_argument("--runs-dir", type=Path, default=None)
 
     return parser
 
@@ -115,5 +120,33 @@ def _run_live(args: argparse.Namespace) -> int:
     if os.getenv("PERPFUT_ENABLE_LIVE") != "1":
         raise SystemExit("live mode is gated; set PERPFUT_ENABLE_LIVE=1 only after implementation")
 
-    _ = args.product_id
-    raise SystemExit("live mode remains unimplemented; Step 4 adds preview and execution")
+    config = AppConfig.from_env().with_overrides(
+        mode=Mode.LIVE,
+        product_id=args.product_id,
+        iterations=args.iterations if args.iterations is not None else 1,
+        interval_seconds=args.interval_seconds,
+        runs_dir=args.runs_dir,
+    )
+    portfolio_uuid = args.portfolio_uuid or config.coinbase.intx_portfolio_uuid
+    if not portfolio_uuid:
+        raise SystemExit("set COINBASE_INTX_PORTFOLIO_UUID or pass --portfolio-uuid")
+    if not config.coinbase.api_key_id or not config.coinbase.api_key_secret:
+        raise SystemExit("set COINBASE_API_KEY_ID and COINBASE_API_KEY_SECRET")
+
+    artifact_store = ArtifactStore.create(config.runtime.runs_dir)
+    artifact_store.write_metadata(config)
+
+    with CoinbasePublicClient() as market_data, CoinbasePrivateClient(
+        api_key_id=config.coinbase.api_key_id,
+        api_key_secret=config.coinbase.api_key_secret,
+    ) as trading_client:
+        executor = LiveExecutor(
+            config=config,
+            market_data=market_data,
+            trading_client=trading_client,
+            artifact_store=artifact_store,
+            portfolio_uuid=portfolio_uuid,
+        )
+        executor.run()
+
+    return 0

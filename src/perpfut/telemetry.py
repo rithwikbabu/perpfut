@@ -100,7 +100,7 @@ class ArtifactStore:
             "fill": result.fill,
             "position": result.state,
         }
-        self._append_ndjson(self.events_path, event)
+        self.append_event("cycle", event)
         if result.fill is not None:
             self._append_ndjson(
                 self.fills_path,
@@ -120,6 +120,18 @@ class ArtifactStore:
             },
         )
         LOGGER.info(json.dumps(_jsonable(event), sort_keys=True))
+
+    def append_event(self, event_type: str, payload: Any) -> None:
+        self._append_ndjson(
+            self.events_path,
+            {
+                "event_type": event_type,
+                **(payload if isinstance(payload, dict) else {"payload": payload}),
+            },
+        )
+
+    def write_state(self, payload: Any) -> None:
+        self._write_json(self.state_path, payload)
 
     def _append_position(self, cycle_id: str, state: PositionState) -> None:
         self._append_ndjson(

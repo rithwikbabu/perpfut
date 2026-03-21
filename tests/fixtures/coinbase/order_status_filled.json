@@ -1,0 +1,12 @@
+{
+  "order": {
+    "order_id": "order-123",
+    "client_order_id": "client-123",
+    "product_id": "BTC-PERP-INTX",
+    "side": "BUY",
+    "status": "FILLED",
+    "filled_size": "0.05",
+    "average_filled_price": "70100.00",
+    "total_fees": "1.25"
+  }
+}

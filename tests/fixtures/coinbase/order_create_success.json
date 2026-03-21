@@ -1,0 +1,11 @@
+{
+  "success": true,
+  "failure_reason": null,
+  "order_id": "order-123",
+  "success_response": {
+    "order_id": "order-123",
+    "product_id": "BTC-PERP-INTX",
+    "side": "BUY",
+    "client_order_id": "client-123"
+  }
+}
