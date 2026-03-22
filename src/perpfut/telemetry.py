@@ -154,6 +154,12 @@ class ArtifactStore:
     def write_state(self, payload: Any) -> None:
         self._write_json(self.state_path, payload)
 
+    def append_fill_row(self, payload: Any) -> None:
+        self._append_ndjson(self.fills_path, payload)
+
+    def append_position_row(self, payload: Any) -> None:
+        self._append_ndjson(self.positions_path, payload)
+
     def _append_position(self, cycle_id: str, state: PositionState) -> None:
         self._append_ndjson(
             self.positions_path,

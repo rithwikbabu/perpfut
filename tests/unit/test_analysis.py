@@ -183,6 +183,90 @@ def test_analyze_run_uses_live_state_fallbacks_when_positions_and_fills_are_abse
     assert analysis.decision_counts == {"filled": 1}
 
 
+def test_analyze_run_supports_backtest_portfolio_artifacts(tmp_path) -> None:
+    run_dir = tmp_path / "20260322T020000000000Z_backtest"
+    run_dir.mkdir(parents=True)
+    _write_json(
+        run_dir / "manifest.json",
+        {
+            "run_id": run_dir.name,
+            "created_at": "2026-03-22T02:00:00Z",
+            "mode": "backtest",
+            "product_id": "MULTI_ASSET",
+        },
+    )
+    _write_json(
+        run_dir / "config.json",
+        {
+            "simulation": {
+                "starting_collateral_usdc": 10000.0,
+                "max_leverage": 2.0,
+            }
+        },
+    )
+    _write_ndjson(
+        run_dir / "positions.ndjson",
+        [
+            {
+                "cycle_id": "cycle-0001",
+                "position": {
+                    "collateral_usdc": 10000.0,
+                    "realized_pnl_usdc": 0.0,
+                    "unrealized_pnl_usdc": 10.0,
+                    "equity_usdc": 10010.0,
+                    "gross_notional_usdc": 5000.0,
+                },
+            },
+            {
+                "cycle_id": "cycle-0002",
+                "position": {
+                    "collateral_usdc": 10000.0,
+                    "realized_pnl_usdc": 15.0,
+                    "unrealized_pnl_usdc": 5.0,
+                    "equity_usdc": 10020.0,
+                    "gross_notional_usdc": 7000.0,
+                },
+            },
+        ],
+    )
+    _write_ndjson(
+        run_dir / "fills.ndjson",
+        [
+            {"fill": {"quantity": 1.0, "price": 100.0}},
+            {"fill": {"quantity": 2.0, "price": 50.0}},
+        ],
+    )
+    _write_ndjson(
+        run_dir / "events.ndjson",
+        [
+            {"cycle_id": "cycle-0001", "timestamp": "2026-03-22T02:01:00Z", "execution_summary": {"reason_code": "filled"}},
+            {"cycle_id": "cycle-0002", "timestamp": "2026-03-22T02:02:00Z", "execution_summary": {"reason_code": "mixed_decisions"}},
+        ],
+    )
+    _write_json(
+        run_dir / "state.json",
+        {
+            "run_id": run_dir.name,
+            "cycle_id": "cycle-0002",
+            "position": {
+                "collateral_usdc": 10000.0,
+                "realized_pnl_usdc": 15.0,
+                "unrealized_pnl_usdc": 5.0,
+                "equity_usdc": 10020.0,
+                "gross_notional_usdc": 7000.0,
+            },
+        },
+    )
+
+    analysis = analyze_run(run_dir)
+
+    assert analysis.mode == "backtest"
+    assert analysis.ending_equity_usdc == 10020.0
+    assert analysis.total_pnl_usdc == 20.0
+    assert analysis.turnover_usdc == 200.0
+    assert analysis.max_abs_exposure_pct == 0.35
+
+
 def test_analyze_run_prepends_configured_start_for_single_snapshot_positions(tmp_path) -> None:
     run_dir = tmp_path / "20260322T020000000000Z_single"
     run_dir.mkdir(parents=True)

@@ -197,12 +197,9 @@ def _build_exposure_series(
         position = row.get("position")
         if not isinstance(position, dict):
             continue
-        quantity = _as_float(position.get("quantity")) or 0.0
-        mark_price = _as_float(position.get("mark_price")) or 0.0
         label = str(row.get("cycle_id") or len(points))
-        points.append(
-            SeriesPoint(label=label, value=abs((quantity * mark_price) / max_abs_notional))
-        )
+        gross_notional = _position_gross_notional(position)
+        points.append(SeriesPoint(label=label, value=abs(gross_notional / max_abs_notional)))
     if points:
         return points
     current_position = _as_float(state.get("current_position"))
@@ -369,18 +366,33 @@ def _load_resumed_state(run_dir: Path, resumed_from_run_id: str) -> dict[str, An
 
 
 def _position_equity(position: dict[str, Any]) -> float:
+    equity = _as_float(position.get("equity_usdc"))
+    if equity is not None:
+        return equity
     collateral = _as_float(position.get("collateral_usdc")) or 0.0
     realized = _as_float(position.get("realized_pnl_usdc")) or 0.0
     return collateral + realized + _position_unrealized(position)
 
 
 def _position_unrealized(position: dict[str, Any]) -> float:
+    unrealized = _as_float(position.get("unrealized_pnl_usdc"))
+    if unrealized is not None:
+        return unrealized
     quantity = _as_float(position.get("quantity"))
     entry_price = _as_float(position.get("entry_price"))
     mark_price = _as_float(position.get("mark_price"))
     if quantity is None or entry_price is None or mark_price is None:
         return 0.0
     return (mark_price - entry_price) * quantity
+
+
+def _position_gross_notional(position: dict[str, Any]) -> float:
+    gross_notional = _as_float(position.get("gross_notional_usdc"))
+    if gross_notional is not None:
+        return gross_notional
+    quantity = _as_float(position.get("quantity")) or 0.0
+    mark_price = _as_float(position.get("mark_price")) or 0.0
+    return quantity * mark_price
 
 
 def _fill_notional(row: dict[str, Any]) -> float:
