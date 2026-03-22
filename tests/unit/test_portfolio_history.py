@@ -121,3 +121,16 @@ def test_portfolio_history_keeps_zero_sharpe_above_negative_sharpe(tmp_path) -> 
     comparison = compare_portfolio_runs(tmp_path, limit=10)
 
     assert [item.run_id for item in comparison.items] == ["run-zero", "run-negative"]
+
+
+def test_portfolio_history_ranks_missing_sharpe_after_numeric_sharpe(tmp_path) -> None:
+    _make_portfolio_run(tmp_path, "run-none", sharpe=0.0, return_pct=0.01)
+    analysis_path = tmp_path / "backtests" / "portfolio-runs" / "run-none" / "analysis.json"
+    payload = json.loads(analysis_path.read_text(encoding="utf-8"))
+    payload["sharpe_ratio"] = None
+    analysis_path.write_text(json.dumps(payload), encoding="utf-8")
+    _make_portfolio_run(tmp_path, "run-positive", sharpe=0.5, return_pct=0.005)
+
+    comparison = compare_portfolio_runs(tmp_path, limit=10)
+
+    assert [item.run_id for item in comparison.items] == ["run-positive", "run-none"]
