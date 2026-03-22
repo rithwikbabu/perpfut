@@ -53,10 +53,12 @@ def analyze_run(run_dir: Path) -> RunAnalysis:
     fills = _collect_fill_rows(run_dir, events)
 
     max_abs_notional = _resolve_max_abs_notional(config)
+    configured_starting_equity = _resolve_starting_equity(config, _resolve_ending_equity(state))
     equity_series = _build_equity_series(positions)
+    equity_series = _prepend_configured_starting_equity(equity_series, configured_starting_equity)
     if not equity_series:
         ending_equity = _resolve_ending_equity(state)
-        starting_equity = _resolve_starting_equity(config, ending_equity)
+        starting_equity = configured_starting_equity
         equity_series = [SeriesPoint(label="start", value=starting_equity)]
         if str(state.get("cycle_id") or "latest") != "start" or ending_equity != starting_equity:
             equity_series.append(
@@ -155,6 +157,18 @@ def _build_drawdown_series(equity_series: list[SeriesPoint]) -> list[SeriesPoint
         peak = max(peak, point.value)
         points.append(SeriesPoint(label=point.label, value=max(peak - point.value, 0.0)))
     return points
+
+
+def _prepend_configured_starting_equity(
+    equity_series: list[SeriesPoint],
+    starting_equity: float,
+) -> list[SeriesPoint]:
+    if not equity_series:
+        return equity_series
+    first_point = equity_series[0]
+    if abs(first_point.value - starting_equity) <= 1e-12:
+        return equity_series
+    return [SeriesPoint(label="start", value=starting_equity), *equity_series]
 
 
 def _compute_max_drawdown_pct(equity_series: list[SeriesPoint]) -> float:

@@ -181,3 +181,69 @@ def test_analyze_run_uses_live_state_fallbacks_when_positions_and_fills_are_abse
     assert analysis.turnover_usdc == 15.5
     assert analysis.avg_abs_exposure_pct == 0.2
     assert analysis.decision_counts == {"filled": 1}
+
+
+def test_analyze_run_prepends_configured_start_for_single_snapshot_positions(tmp_path) -> None:
+    run_dir = tmp_path / "20260322T020000000000Z_single"
+    run_dir.mkdir(parents=True)
+    _write_json(
+        run_dir / "manifest.json",
+        {
+            "run_id": run_dir.name,
+            "created_at": "2026-03-22T02:00:00Z",
+            "mode": "paper",
+            "product_id": "BTC-PERP-INTX",
+        },
+    )
+    _write_json(
+        run_dir / "config.json",
+        {
+            "simulation": {
+                "starting_collateral_usdc": 10000.0,
+                "max_leverage": 2.0,
+            }
+        },
+    )
+    _write_ndjson(
+        run_dir / "positions.ndjson",
+        [
+            {
+                "cycle_id": "cycle-0001",
+                "position": {
+                    "quantity": 0.5,
+                    "entry_price": 100.0,
+                    "mark_price": 110.0,
+                    "collateral_usdc": 10000.0,
+                    "realized_pnl_usdc": 20.0,
+                },
+            },
+        ],
+    )
+    _write_ndjson(
+        run_dir / "events.ndjson",
+        [
+            {"cycle_id": "cycle-0001", "timestamp": "2026-03-22T02:01:00Z", "execution_summary": {"reason_code": "filled"}},
+        ],
+    )
+    _write_json(
+        run_dir / "state.json",
+        {
+            "run_id": run_dir.name,
+            "cycle_id": "cycle-0001",
+            "position": {
+                "quantity": 0.5,
+                "entry_price": 100.0,
+                "mark_price": 110.0,
+                "collateral_usdc": 10000.0,
+                "realized_pnl_usdc": 20.0,
+            },
+        },
+    )
+
+    analysis = analyze_run(run_dir)
+
+    assert analysis.starting_equity_usdc == 10000.0
+    assert analysis.ending_equity_usdc == 10025.0
+    assert analysis.total_pnl_usdc == 25.0
+    assert analysis.total_return_pct == 0.0025
+    assert [point.label for point in analysis.equity_series] == ["start", "cycle-0001"]

@@ -37,7 +37,12 @@ def find_latest_run(
             continue
         if require_state and not _has_readable_state(run_dir):
             continue
-        manifest = load_run_manifest(run_dir)
+        try:
+            manifest = load_run_manifest(run_dir)
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(manifest, dict):
+            continue
         if mode is not None and manifest.get("mode") != mode:
             continue
         if product_id is not None and manifest.get("product_id") != product_id:
@@ -49,7 +54,13 @@ def find_latest_run(
 def summarize_runs(base_dir: Path, *, limit: int = 10) -> list[dict[str, Any]]:
     summaries = []
     for run_dir in list_runs(base_dir)[:limit]:
-        manifest = load_run_manifest(run_dir) if (run_dir / "manifest.json").exists() else {}
+        manifest = {}
+        if (run_dir / "manifest.json").exists():
+            try:
+                loaded = load_run_manifest(run_dir)
+            except (OSError, json.JSONDecodeError):
+                loaded = {}
+            manifest = loaded if isinstance(loaded, dict) else {}
         summaries.append(
             {
                 "run_id": run_dir.name,
@@ -71,7 +82,7 @@ def _has_readable_state(run_dir: Path) -> bool:
     if not state_path.exists():
         return False
     try:
-        _load_json(state_path)
+        payload = _load_json(state_path)
     except (OSError, json.JSONDecodeError):
         return False
-    return True
+    return isinstance(payload, dict)

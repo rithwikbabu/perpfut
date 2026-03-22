@@ -9,6 +9,10 @@
 5. Inspect artifacts:
    - `python3 -m perpfut runs --limit 5`
    - `python3 -m perpfut state --mode paper`
+6. Inspect canonical performance:
+   - `python3 -m perpfut analyze --mode paper`
+   - `curl -s http://127.0.0.1:8000/api/dashboard/overview?mode=paper | jq '.latest_analysis'`
+   - open `http://127.0.0.1:3000` for the overview and `/runs/<run_id>` for drill-down
 
 ## Live Mode
 
@@ -36,3 +40,9 @@ Live sequence:
 - If live preflight fails, do not start `perpfut live`.
 - On restart, the engine loads the latest matching live checkpoint, reconciles against Coinbase before trading, and logs `resume_mismatch` if local checkpoint notional differs from exchange truth.
 - Review `events.ndjson` for `halt`, `resume_loaded`, `resume_mismatch`, `order_preview`, `order_submit`, and `order_fill` before continuing.
+
+## Reporting Notes
+
+- CLI, API, and UI now share the same canonical run analysis payload.
+- If a run is older or incomplete and cannot be analyzed, the dashboard still keeps artifact views readable and shows a reporting fallback instead of crashing.
+- See `docs/performance-reporting.md` for the full reporting contract and operator workflow.
