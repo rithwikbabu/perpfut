@@ -137,7 +137,7 @@ def compare_portfolio_runs(
             sorted(
                 items,
                 key=lambda item: (
-                    -(item.sharpe_ratio or float("-inf")),
+                    float("-inf") if item.sharpe_ratio is None else -item.sharpe_ratio,
                     -item.total_return_pct,
                     item.max_drawdown_pct,
                     item.total_turnover_usdc,

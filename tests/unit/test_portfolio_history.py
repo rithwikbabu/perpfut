@@ -112,3 +112,12 @@ def test_portfolio_history_lists_loads_and_compares_runs(tmp_path) -> None:
     assert detail["analysis"]["run_id"] == "run-a"
     assert comparison.items[0].run_id == "run-a"
     assert comparison.items[0].rank == 1
+
+
+def test_portfolio_history_keeps_zero_sharpe_above_negative_sharpe(tmp_path) -> None:
+    _make_portfolio_run(tmp_path, "run-zero", sharpe=0.0, return_pct=0.01)
+    _make_portfolio_run(tmp_path, "run-negative", sharpe=-0.5, return_pct=0.10)
+
+    comparison = compare_portfolio_runs(tmp_path, limit=10)
+
+    assert [item.run_id for item in comparison.items] == ["run-zero", "run-negative"]
