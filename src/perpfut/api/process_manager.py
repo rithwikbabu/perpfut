@@ -15,6 +15,7 @@ from pathlib import Path
 
 from .schemas import PaperRunRequest, PaperRunStatusResponse
 from ..config import AppConfig
+from ..strategy_registry import validate_strategy_id
 
 
 class PaperRunConflictError(RuntimeError):
@@ -39,6 +40,7 @@ class PaperProcessMetadata:
     started_at: str
     run_id: str | None
     product_id: str
+    strategy_id: str
     iterations: int
     interval_seconds: int
     starting_collateral_usdc: float
@@ -64,6 +66,10 @@ class PaperProcessManager:
             current = self._status_locked()
             if current.active:
                 raise PaperRunConflictError("a paper run is already active")
+            try:
+                validate_strategy_id(request.strategy_id)
+            except ValueError as exc:
+                raise PaperRunStartError(str(exc)) from exc
 
             self.control_dir.mkdir(parents=True, exist_ok=True)
             with self.log_path.open("w", encoding="utf-8") as log_handle:
@@ -97,6 +103,7 @@ class PaperProcessManager:
                 started_at=datetime.now(timezone.utc).isoformat(),
                 run_id=None,
                 product_id=request.product_id,
+                strategy_id=request.strategy_id,
                 iterations=request.iterations,
                 interval_seconds=request.interval_seconds,
                 starting_collateral_usdc=request.starting_collateral_usdc,
@@ -137,6 +144,7 @@ class PaperProcessManager:
             {
                 "MODE": "paper",
                 "PRODUCT_ID": request.product_id,
+                "STRATEGY_ID": request.strategy_id,
                 "ITERATIONS": str(request.iterations),
                 "INTERVAL_SECONDS": str(request.interval_seconds),
                 "STARTING_COLLATERAL_USDC": str(request.starting_collateral_usdc),
@@ -163,6 +171,8 @@ class PaperProcessManager:
             raise PaperRunStateError("failed to read paper run metadata") from exc
         except json.JSONDecodeError as exc:
             raise PaperRunStateError("paper run metadata is corrupted") from exc
+        if isinstance(payload, dict) and "strategy_id" not in payload:
+            payload["strategy_id"] = "momentum"
         try:
             return PaperProcessMetadata(**payload)
         except TypeError as exc:
@@ -314,6 +324,7 @@ class PaperProcessManager:
             started_at=metadata.started_at,
             run_id=metadata.run_id,
             product_id=metadata.product_id,
+            strategy_id=metadata.strategy_id,
             iterations=metadata.iterations,
             interval_seconds=metadata.interval_seconds,
             starting_collateral_usdc=metadata.starting_collateral_usdc,

@@ -21,6 +21,7 @@ class StubManager:
             started_at="2026-03-22T00:00:00+00:00",
             run_id=None,
             product_id=request.product_id,
+            strategy_id=request.strategy_id,
             iterations=request.iterations,
             interval_seconds=request.interval_seconds,
             starting_collateral_usdc=request.starting_collateral_usdc,
@@ -41,6 +42,7 @@ def test_start_and_stop_paper_routes(monkeypatch) -> None:
         "/api/paper-runs",
         json={
             "productId": "BTC-PERP-INTX",
+            "strategyId": "momentum",
             "iterations": 12,
             "intervalSeconds": 60,
             "startingCollateralUsdc": 15000,
@@ -51,6 +53,7 @@ def test_start_and_stop_paper_routes(monkeypatch) -> None:
     assert start_response.status_code == 201
     assert start_response.json()["active"] is True
     assert start_response.json()["product_id"] == "BTC-PERP-INTX"
+    assert start_response.json()["strategy_id"] == "momentum"
     assert manager.started is not None
 
     assert stop_response.status_code == 200
@@ -67,6 +70,7 @@ def test_active_paper_route_returns_status(monkeypatch) -> None:
                 started_at="2026-03-22T00:00:00+00:00",
                 run_id="paper-123",
                 product_id="BTC-PERP-INTX",
+                strategy_id="momentum",
                 iterations=12,
                 interval_seconds=60,
                 starting_collateral_usdc=15000,
@@ -81,6 +85,7 @@ def test_active_paper_route_returns_status(monkeypatch) -> None:
     assert response.status_code == 200
     assert response.json()["active"] is True
     assert response.json()["run_id"] == "paper-123"
+    assert response.json()["strategy_id"] == "momentum"
 
 
 def test_start_paper_route_maps_conflict_to_409(monkeypatch) -> None:
@@ -95,6 +100,7 @@ def test_start_paper_route_maps_conflict_to_409(monkeypatch) -> None:
         "/api/paper-runs",
         json={
             "productId": "BTC-PERP-INTX",
+            "strategyId": "momentum",
             "iterations": 12,
             "intervalSeconds": 60,
             "startingCollateralUsdc": 15000,
@@ -117,6 +123,7 @@ def test_start_paper_route_maps_failures_to_500(monkeypatch) -> None:
         "/api/paper-runs",
         json={
             "productId": "BTC-PERP-INTX",
+            "strategyId": "momentum",
             "iterations": 12,
             "intervalSeconds": 60,
             "startingCollateralUsdc": 15000,
@@ -149,6 +156,7 @@ def test_start_paper_route_validates_payload(monkeypatch) -> None:
         "/api/paper-runs",
         json={
             "productId": "BTC-PERP-INTX",
+            "strategyId": "momentum",
             "iterations": 0,
             "intervalSeconds": 60,
             "startingCollateralUsdc": -1,

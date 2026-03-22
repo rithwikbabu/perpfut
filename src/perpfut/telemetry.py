@@ -82,6 +82,7 @@ class ArtifactStore:
             "created_at": datetime.now(timezone.utc),
             "mode": config.runtime.mode,
             "product_id": config.runtime.product_id,
+            "strategy_id": config.strategy.strategy_id,
             "git_sha": _resolve_git_sha(),
             "resumed_from_run_id": self.resumed_from_run_id,
         }

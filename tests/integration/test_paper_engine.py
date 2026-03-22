@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import json
 
 from perpfut.config import AppConfig
 from perpfut.domain import Candle, MarketSnapshot
@@ -57,6 +58,8 @@ def test_paper_engine_runs_one_cycle_and_writes_artifacts(tmp_path) -> None:
     assert artifact_store.events_path.exists()
     assert artifact_store.positions_path.exists()
     assert artifact_store.state_path.exists()
+    manifest = json.loads(artifact_store.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["strategy_id"] == "momentum"
 
 
 def test_paper_engine_records_skip_reason_when_delta_is_below_rebalance_threshold(

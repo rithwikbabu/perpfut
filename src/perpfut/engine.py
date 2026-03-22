@@ -23,8 +23,8 @@ from .risk import (
     clip_target_position,
     should_halt_for_drawdown,
 )
-from .signal_momentum import compute_signal
 from .sim import apply_fill, simulate_market_fill
+from .strategy_registry import compute_strategy_signal
 from .telemetry import ArtifactStore
 
 
@@ -65,10 +65,9 @@ class PaperEngine:
             candle_limit=self.config.strategy.lookback_candles,
         )
         marked_state = replace(self.state, mark_price=market.mid_price)
-        signal = compute_signal(
+        signal = compute_strategy_signal(
             market.candles,
-            lookback_candles=self.config.strategy.lookback_candles,
-            signal_scale=self.config.strategy.signal_scale,
+            self.config.strategy,
         )
         raw_target_position = signal.target_position
         target_position = clip_target_position(

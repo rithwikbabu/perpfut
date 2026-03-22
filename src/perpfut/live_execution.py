@@ -25,7 +25,7 @@ from .engine import (
     build_risk_decision,
 )
 from .risk import clip_target_position, should_halt_for_drawdown
-from .signal_momentum import compute_signal
+from .strategy_registry import compute_strategy_signal
 from .telemetry import ArtifactStore
 
 
@@ -162,10 +162,9 @@ class LiveExecutor:
         current_position = current_notional_usdc / self.config.max_abs_notional_usdc
         self._log_resume_mismatch_if_needed(cycle_id, current_notional_usdc)
 
-        signal = compute_signal(
+        signal = compute_strategy_signal(
             market.candles,
-            lookback_candles=self.config.strategy.lookback_candles,
-            signal_scale=self.config.strategy.signal_scale,
+            self.config.strategy,
         )
         raw_target_position = signal.target_position
         target_position = clip_target_position(
