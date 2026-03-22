@@ -2,6 +2,8 @@ import json
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 
+import pytest
+
 from perpfut.cli import build_parser, main
 
 
@@ -184,3 +186,47 @@ def test_backtest_show_and_compare_commands_read_artifacts(tmp_path, capsys) -> 
     assert show_payload["analysis"]["run_id"] == "run-1"
     assert compare_payload["suite_id"] == "suite-1"
     assert compare_payload["items"][0]["run_id"] == "run-1"
+
+
+def test_backtest_run_rejects_invalid_strategy_before_dataset_build(monkeypatch, tmp_path) -> None:
+    class ExplodingClient:
+        def __enter__(self):
+            raise AssertionError("coinbase client should not be constructed for an invalid strategy")
+
+        def __exit__(self, *_args):
+            return None
+
+    class ExplodingBuilder:
+        def __init__(self, *, client, base_runs_dir):
+            raise AssertionError("dataset builder should not be constructed for an invalid strategy")
+
+    monkeypatch.setattr("perpfut.cli.CoinbasePublicClient", ExplodingClient)
+    monkeypatch.setattr("perpfut.cli.HistoricalDatasetBuilder", ExplodingBuilder)
+
+    with pytest.raises(SystemExit, match="unknown strategy_id 'nope'"):
+        main(
+            [
+                "backtest",
+                "run",
+                "--runs-dir",
+                str(tmp_path),
+                "--product-id",
+                "BTC-PERP-INTX",
+                "--strategy-id",
+                "nope",
+                "--start",
+                "2026-03-20T00:00:00+00:00",
+                "--end",
+                "2026-03-20T01:00:00+00:00",
+            ]
+        )
+
+
+def test_backtest_show_missing_run_raises_system_exit(tmp_path) -> None:
+    with pytest.raises(SystemExit, match="backtest run not found: missing"):
+        main(["backtest", "show", "--runs-dir", str(tmp_path), "--run-id", "missing"])
+
+
+def test_backtest_compare_missing_suite_raises_system_exit(tmp_path) -> None:
+    with pytest.raises(SystemExit, match="backtest suite not found: missing"):
+        main(["backtest", "compare", "--runs-dir", str(tmp_path), "--suite-id", "missing"])

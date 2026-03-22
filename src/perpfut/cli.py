@@ -419,6 +419,7 @@ def _run_backtest(args: argparse.Namespace) -> int:
 
 def _run_backtest_suite(args: argparse.Namespace) -> int:
     config = _build_backtest_config(args)
+    _validate_strategy_ids(args.strategy_ids)
     start = _parse_iso8601(args.start, field_name="start")
     end = _parse_iso8601(args.end, field_name="end")
     with CoinbasePublicClient() as client:
@@ -462,21 +463,36 @@ def _run_backtest_suite(args: argparse.Namespace) -> int:
 
 def _list_backtest_suites(args: argparse.Namespace) -> int:
     runs_dir = args.runs_dir or AppConfig.from_env().runtime.runs_dir
-    suites = list_backtest_suites(runs_dir, limit=args.limit)
+    try:
+        suites = list_backtest_suites(runs_dir, limit=args.limit)
+    except FileNotFoundError as exc:
+        raise SystemExit(str(exc)) from exc
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise SystemExit(f"invalid backtest suite artifacts in: {runs_dir}") from exc
     print(json.dumps([asdict(item) for item in suites], indent=2, sort_keys=True))
     return 0
 
 
 def _show_backtest_run(args: argparse.Namespace) -> int:
     runs_dir = args.runs_dir or AppConfig.from_env().runtime.runs_dir
-    payload = load_backtest_run(runs_dir, run_id=args.run_id)
+    try:
+        payload = load_backtest_run(runs_dir, run_id=args.run_id)
+    except FileNotFoundError as exc:
+        raise SystemExit(str(exc)) from exc
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise SystemExit(f"invalid backtest run artifacts for: {args.run_id}") from exc
     print(json.dumps(payload, indent=2, sort_keys=True))
     return 0
 
 
 def _compare_backtest_suite(args: argparse.Namespace) -> int:
     runs_dir = args.runs_dir or AppConfig.from_env().runtime.runs_dir
-    payload = compare_backtest_suite(runs_dir, suite_id=args.suite_id)
+    try:
+        payload = compare_backtest_suite(runs_dir, suite_id=args.suite_id)
+    except FileNotFoundError as exc:
+        raise SystemExit(str(exc)) from exc
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise SystemExit(f"invalid backtest suite artifacts for: {args.suite_id}") from exc
     print(json.dumps(asdict(payload), indent=2, sort_keys=True))
     return 0
 
@@ -538,3 +554,11 @@ def _validate_strategy_config(config: AppConfig) -> None:
         validate_strategy_id(config.strategy.strategy_id)
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
+
+
+def _validate_strategy_ids(strategy_ids: list[str]) -> None:
+    for strategy_id in strategy_ids:
+        try:
+            validate_strategy_id(strategy_id)
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
