@@ -2,8 +2,29 @@
 
 import Link from "next/link";
 import useSWR from "swr";
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
-import { fetchJson, type ArtifactDocumentResponse, type ArtifactListResponse } from "@/lib/perpfut-api";
+import {
+  buildAnalysisMetrics,
+  formatCount,
+  formatMoney,
+  formatPercent,
+  formatSignedPercent,
+} from "@/lib/dashboard-metrics";
+import {
+  fetchJson,
+  type ArtifactDocumentResponse,
+  type ArtifactListResponse,
+  type RunAnalysisResponse,
+} from "@/lib/perpfut-api";
 
 
 function DetailPanel({
@@ -212,6 +233,158 @@ function DecisionSnapshot({ stateData }: { stateData: Record<string, unknown> })
   );
 }
 
+function formatTooltipPercent(value: unknown): string {
+  return typeof value === "number" ? `${(value * 100).toFixed(2)}%` : "--";
+}
+
+function PerformanceSnapshot({ analysis }: { analysis: RunAnalysisResponse }) {
+  const metrics = buildAnalysisMetrics(analysis);
+
+  return (
+    <>
+      <DetailPanel className="p-5">
+        <DetailHeader
+          eyebrow="Performance"
+          title="Canonical Analysis Summary"
+          action={`${formatCount(metrics.cycleCount)} cycles`}
+        />
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          <DetailMetric
+            label="Total Return"
+            value={formatSignedPercent(metrics.totalReturnPct)}
+            tone="accent"
+          />
+          <DetailMetric label="Total P&L" value={formatMoney(metrics.totalPnlUsd)} tone="accent" />
+          <DetailMetric
+            label="Max Drawdown"
+            value={`${formatPercent(metrics.maxDrawdownPct)} / ${formatMoney(metrics.maxDrawdownUsd)}`}
+            tone="danger"
+          />
+          <DetailMetric
+            label="Turnover / Trades"
+            value={`${formatMoney(metrics.turnoverUsd)} / ${formatCount(metrics.tradeCount ?? metrics.fillCount)}`}
+            tone="warning"
+          />
+          <DetailMetric
+            label="Exposure"
+            value={`${formatPercent(metrics.avgAbsExposurePct)} avg / ${formatPercent(metrics.maxAbsExposurePct)} peak`}
+          />
+        </div>
+      </DetailPanel>
+
+      <div className="grid gap-4 xl:grid-cols-3">
+        <DetailPanel className="p-5 xl:col-span-2">
+          <DetailHeader eyebrow="Performance" title="Equity Curve" action={`${metrics.equitySeries.length} points`} />
+          <div className="signal-grid h-72 border border-[var(--border)] p-3">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={metrics.equitySeries}>
+                <CartesianGrid stroke="rgba(143,214,255,0.1)" vertical={false} />
+                <XAxis dataKey="label" tick={{ fill: "#90a4bf", fontSize: 11 }} tickLine={false} axisLine={false} />
+                <YAxis tick={{ fill: "#90a4bf", fontSize: 11 }} tickLine={false} axisLine={false} width={80} />
+                <Tooltip
+                  contentStyle={{
+                    border: "1px solid rgba(135, 162, 196, 0.22)",
+                    background: "rgba(8, 12, 20, 0.96)",
+                    color: "#ecf4ff",
+                  }}
+                />
+                <Line type="monotone" dataKey="value" stroke="#8fd6ff" strokeWidth={2.5} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </DetailPanel>
+
+        <DetailPanel className="p-5">
+          <DetailHeader eyebrow="Risk" title="Drawdown" action={formatPercent(metrics.maxDrawdownPct)} />
+          <div className="signal-grid h-72 border border-[var(--border)] p-3">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={metrics.drawdownSeries}>
+                <CartesianGrid stroke="rgba(143,214,255,0.1)" vertical={false} />
+                <XAxis dataKey="label" tick={{ fill: "#90a4bf", fontSize: 11 }} tickLine={false} axisLine={false} />
+                <YAxis tick={{ fill: "#90a4bf", fontSize: 11 }} tickLine={false} axisLine={false} width={80} />
+                <Tooltip
+                  contentStyle={{
+                    border: "1px solid rgba(135, 162, 196, 0.22)",
+                    background: "rgba(8, 12, 20, 0.96)",
+                    color: "#ecf4ff",
+                  }}
+                />
+                <Line type="monotone" dataKey="value" stroke="#ff6d7b" strokeWidth={2.5} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </DetailPanel>
+
+        <DetailPanel className="p-5 xl:col-span-2">
+          <DetailHeader
+            eyebrow="Exposure"
+            title="Absolute Exposure Timeline"
+            action={`${formatPercent(metrics.avgAbsExposurePct)} avg / ${formatPercent(metrics.maxAbsExposurePct)} peak`}
+          />
+          <div className="signal-grid h-72 border border-[var(--border)] p-3">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={metrics.exposureSeries}>
+                <CartesianGrid stroke="rgba(143,214,255,0.1)" vertical={false} />
+                <XAxis dataKey="label" tick={{ fill: "#90a4bf", fontSize: 11 }} tickLine={false} axisLine={false} />
+                <YAxis
+                  tickFormatter={(value) => `${Math.round(value * 100)}%`}
+                  tick={{ fill: "#90a4bf", fontSize: 11 }}
+                  tickLine={false}
+                  axisLine={false}
+                  width={56}
+                />
+                <Tooltip
+                  contentStyle={{
+                    border: "1px solid rgba(135, 162, 196, 0.22)",
+                    background: "rgba(8, 12, 20, 0.96)",
+                    color: "#ecf4ff",
+                  }}
+                  formatter={(value) => formatTooltipPercent(value)}
+                />
+                <Line type="monotone" dataKey="value" stroke="#9bf6cf" strokeWidth={2.5} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </DetailPanel>
+
+        <DetailPanel className="p-5">
+          <DetailHeader eyebrow="Activity" title="Decision Counts" action={`${Object.keys(metrics.decisionCounts).length} reason codes`} />
+          <div className="space-y-3">
+            {Object.entries(metrics.decisionCounts).length > 0 ? (
+              Object.entries(metrics.decisionCounts)
+                .sort((left, right) => right[1] - left[1])
+                .map(([code, count]) => (
+                  <div
+                    key={code}
+                    className="flex items-center justify-between border border-[var(--border)] bg-[var(--bg-elevated)] px-4 py-3 text-sm"
+                  >
+                    <span className="text-[var(--text)]">{code}</span>
+                    <span className="mono text-[var(--accent)]">{count}</span>
+                  </div>
+                ))
+            ) : (
+              <div className="border border-[var(--border)] bg-[var(--bg-elevated)] px-4 py-5 text-sm leading-6 text-[var(--muted)]">
+                No canonical decision counts were recorded for this run.
+              </div>
+            )}
+          </div>
+        </DetailPanel>
+      </div>
+    </>
+  );
+}
+
+function PerformanceUnavailable({ message }: { message: string }) {
+  return (
+    <DetailPanel className="p-5">
+      <DetailHeader eyebrow="Performance" title="Canonical Analysis Unavailable" />
+      <div className="border border-[var(--border)] bg-[var(--bg-elevated)] p-5 text-sm leading-6 text-[var(--muted)]">
+        {message}
+      </div>
+    </DetailPanel>
+  );
+}
+
 export function RunDetail({ runId }: { runId: string }) {
   const manifest = useSWR<ArtifactDocumentResponse>(
     `/runs/${runId}/manifest`,
@@ -238,10 +411,19 @@ export function RunDetail({ runId }: { runId: string }) {
     (path) => fetchJson(path),
     { refreshInterval: 2_000 }
   );
+  const analysis = useSWR<RunAnalysisResponse>(
+    `/runs/${runId}/analysis`,
+    (path) => fetchJson(path),
+    { refreshInterval: 2_000 }
+  );
 
   const error = manifest.error ?? state.error ?? fills.error ?? positions.error ?? events.error;
   const isLoading =
-    manifest.isLoading || state.isLoading || fills.isLoading || positions.isLoading || events.isLoading;
+    manifest.isLoading ||
+    state.isLoading ||
+    fills.isLoading ||
+    positions.isLoading ||
+    events.isLoading;
 
   if (error) {
     return (
@@ -277,8 +459,8 @@ export function RunDetail({ runId }: { runId: string }) {
               </Link>
               <h1 className="mt-3 text-3xl font-semibold tracking-tight">Run Detail: {runId}</h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-[var(--muted)]">
-                Read-only inspection of manifest, latest state, fills, position snapshots, and raw
-                operator events for a single artifact run.
+                Read-only inspection of canonical performance analysis, manifest, latest state,
+                fills, position snapshots, and raw operator events for a single artifact run.
               </p>
             </div>
             <div className="grid gap-2 text-xs uppercase tracking-[0.22em] text-[var(--muted)] sm:grid-cols-3">
@@ -311,6 +493,20 @@ export function RunDetail({ runId }: { runId: string }) {
         </div>
 
         <DecisionSnapshot stateData={stateData} />
+
+        {analysis.data ? (
+          <PerformanceSnapshot analysis={analysis.data} />
+        ) : analysis.isLoading ? (
+          <PerformanceUnavailable message="Canonical analysis is still loading for this run." />
+        ) : (
+          <PerformanceUnavailable
+            message={
+              analysis.error instanceof Error
+                ? analysis.error.message
+                : "Canonical analysis is not available for this run yet."
+            }
+          />
+        )}
 
         <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
           <DetailPanel className="p-5">
