@@ -1670,6 +1670,8 @@ describe("BacktestsShell", () => {
     renderBacktestsShell();
 
     expect(await screen.findByText("Build and launch strategy sleeves")).toBeInTheDocument();
+    const optimizerDetail = screen.getByText("Selected optimizer run").closest("section");
+    expect(optimizerDetail).not.toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Launch Optimizer" }));
 
     await waitFor(() => expect(mockedStartPortfolioRun).toHaveBeenCalledTimes(1));
@@ -1677,6 +1679,11 @@ describe("BacktestsShell", () => {
       datasetId: "dataset-1",
       sleeveRunIds: ["sleeve-run-1"],
     });
+    await waitFor(() =>
+      expect(mockedFetchJson).toHaveBeenCalledWith("/portfolio-runs/portfolio-run-new"),
+    );
+    expect(await within(optimizerDetail!).findByText("portfolio-run-new")).toBeInTheDocument();
+    expect(within(optimizerDetail!).getAllByText("mom-fast").length).toBeGreaterThan(0);
     expect(mockedLaunchSleeves).not.toHaveBeenCalled();
   });
 
@@ -1897,7 +1904,9 @@ describe("BacktestsShell", () => {
 
     expect(await screen.findByText("Build and launch strategy sleeves")).toBeInTheDocument();
     const researchControls = screen.getByText("Build and launch strategy sleeves").closest("section");
+    const optimizerDetail = screen.getByText("Selected optimizer run").closest("section");
     expect(researchControls).not.toBeNull();
+    expect(optimizerDetail).not.toBeNull();
 
     await userEvent.click(screen.getByRole("button", { name: "Auto-Build From Builder" }));
     await userEvent.clear(screen.getByLabelText("Strategy Instance ID"));
@@ -1916,6 +1925,11 @@ describe("BacktestsShell", () => {
         },
       ],
     });
+    await waitFor(() =>
+      expect(mockedFetchJson).toHaveBeenCalledWith("/portfolio-runs/portfolio-run-auto"),
+    );
+    expect(await within(optimizerDetail!).findByText("portfolio-run-auto")).toBeInTheDocument();
+    expect(within(optimizerDetail!).getAllByText("mom-auto").length).toBeGreaterThan(0);
     expect(mockedLaunchSleeves).not.toHaveBeenCalled();
   });
 });
