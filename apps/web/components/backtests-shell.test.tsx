@@ -1077,6 +1077,113 @@ describe("BacktestsShell", () => {
     expect(await screen.findByText("sleeve comparison unavailable")).toBeInTheDocument();
     expect(await screen.findByText("optimizer comparison unavailable")).toBeInTheDocument();
   });
+
+  it("renders an isolated optimizer list error state when portfolio runs fail", async () => {
+    mockedFetchJson.mockImplementation(async (path: string) => {
+      if (path === "/datasets") {
+        return {
+          items: [
+            {
+              datasetId: "dataset-1",
+              createdAt: "2026-03-22T05:00:00Z",
+              fingerprint: "fingerprint-123456",
+              source: "coinbase",
+              version: "1",
+              products: ["BTC-PERP-INTX"],
+              start: "2026-03-20T12:00:00+00:00",
+              end: "2026-03-21T12:00:00+00:00",
+              granularity: "ONE_MINUTE",
+              candleCounts: { "BTC-PERP-INTX": 1440 },
+            },
+          ],
+          count: 1,
+        };
+      }
+      if (path === "/backtests") {
+        return { items: [], count: 0, active_job: null, latest_job: null };
+      }
+      if (path === "/backtest-suites") {
+        return { items: [], count: 0, active_job: null, latest_job: null };
+      }
+      if (path === "/portfolio-runs" || path === "/portfolio-runs?datasetId=dataset-1") {
+        throw new ApiError("portfolio runs unavailable", 500);
+      }
+      if (path === "/portfolio-run-comparisons" || path === "/portfolio-run-comparisons?datasetId=dataset-1") {
+        return defaultPortfolioComparisonResponse;
+      }
+      if (path === "/sleeves" || path === "/sleeves?datasetId=dataset-1") {
+        return defaultSleeveListResponse;
+      }
+      if (path === "/sleeve-comparisons" || path === "/sleeve-comparisons?datasetId=dataset-1") {
+        return defaultSleeveComparisonResponse;
+      }
+      if (path === "/sleeves/sleeve-run-1") {
+        return defaultSleeveDetailResponse;
+      }
+      throw new Error(`unexpected path ${path}`);
+    });
+
+    renderBacktestsShell();
+
+    await waitFor(() => expect(mockedFetchJson).toHaveBeenCalledWith("/portfolio-runs?datasetId=dataset-1"));
+    expect(await screen.findByText("portfolio runs unavailable")).toBeInTheDocument();
+    expect(screen.getByText("Strategy sleeve runs")).toBeInTheDocument();
+    expect(screen.getByText("Selected suite, sleeve, and optimizer rankings")).toBeInTheDocument();
+  });
+
+  it("renders optimizer detail errors without hiding the optimizer run list", async () => {
+    mockedFetchJson.mockImplementation(async (path: string) => {
+      if (path === "/datasets") {
+        return {
+          items: [
+            {
+              datasetId: "dataset-1",
+              createdAt: "2026-03-22T05:00:00Z",
+              fingerprint: "fingerprint-123456",
+              source: "coinbase",
+              version: "1",
+              products: ["BTC-PERP-INTX"],
+              start: "2026-03-20T12:00:00+00:00",
+              end: "2026-03-21T12:00:00+00:00",
+              granularity: "ONE_MINUTE",
+              candleCounts: { "BTC-PERP-INTX": 1440 },
+            },
+          ],
+          count: 1,
+        };
+      }
+      if (path === "/backtests") {
+        return { items: [], count: 0, active_job: null, latest_job: null };
+      }
+      if (path === "/backtest-suites") {
+        return { items: [], count: 0, active_job: null, latest_job: null };
+      }
+      if (path === "/portfolio-runs" || path === "/portfolio-runs?datasetId=dataset-1") {
+        return defaultPortfolioRunsResponse;
+      }
+      if (path === "/portfolio-run-comparisons" || path === "/portfolio-run-comparisons?datasetId=dataset-1") {
+        return defaultPortfolioComparisonResponse;
+      }
+      if (path === "/portfolio-runs/portfolio-run-1") {
+        throw new ApiError("portfolio detail unavailable", 500);
+      }
+      if (path === "/sleeves" || path === "/sleeves?datasetId=dataset-1") {
+        return defaultSleeveListResponse;
+      }
+      if (path === "/sleeve-comparisons" || path === "/sleeve-comparisons?datasetId=dataset-1") {
+        return defaultSleeveComparisonResponse;
+      }
+      if (path === "/sleeves/sleeve-run-1") {
+        return defaultSleeveDetailResponse;
+      }
+      throw new Error(`unexpected path ${path}`);
+    });
+
+    renderBacktestsShell();
+
+    expect(await screen.findByText("portfolio detail unavailable")).toBeInTheDocument();
+    expect(screen.getAllByText("portfolio-run-1").length).toBeGreaterThan(0);
+  });
 });
 
 describe("BacktestRunShell", () => {
