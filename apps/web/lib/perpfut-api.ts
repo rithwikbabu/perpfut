@@ -35,9 +35,53 @@ export type DashboardOverviewResponse = {
   generated_at: string;
   latest_run: RunSummary | null;
   latest_state: Record<string, unknown> | null;
+  latest_decision: LatestDecision | null;
   recent_events: Record<string, unknown>[];
   recent_fills: Record<string, unknown>[];
   recent_positions: Record<string, unknown>[];
+};
+
+export type SignalDecision = {
+  strategy: string | null;
+  raw_value: number | null;
+  target_position: number | null;
+};
+
+export type RiskDecision = {
+  target_before_risk: number;
+  target_after_risk: number;
+  current_position: number;
+  target_notional_usdc: number;
+  current_notional_usdc: number;
+  delta_notional_usdc: number;
+  rebalance_threshold: number;
+  min_trade_notional_usdc: number;
+  halted: boolean;
+  rebalance_eligible: boolean;
+};
+
+export type ExecutionSummary = {
+  action: string;
+  reason_code: string;
+  reason_message: string;
+  summary: string;
+};
+
+export type NoTradeReason = {
+  code: string;
+  message: string;
+};
+
+export type LatestDecision = {
+  cycle_id: string | null;
+  mode: string | null;
+  product_id: string | null;
+  signal: SignalDecision | null;
+  risk_decision: RiskDecision | null;
+  execution_summary: ExecutionSummary | null;
+  no_trade_reason: NoTradeReason | null;
+  order_intent: Record<string, unknown> | null;
+  fill: Record<string, unknown> | null;
 };
 
 export type ArtifactDocumentResponse = {

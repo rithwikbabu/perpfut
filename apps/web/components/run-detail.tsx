@@ -84,6 +84,134 @@ function extractFillValue(row: Record<string, unknown>, field: string): string {
   return typeof value === "number" ? String(value) : String(value ?? "--");
 }
 
+function decisionTone(action: string | null | undefined): "accent" | "warning" | "danger" {
+  if (action === "filled") {
+    return "accent";
+  }
+  if (action === "halted") {
+    return "danger";
+  }
+  return "warning";
+}
+
+function detailValueClass(tone: "accent" | "warning" | "danger" | "text") {
+  if (tone === "accent") {
+    return "text-[var(--accent)]";
+  }
+  if (tone === "warning") {
+    return "text-[var(--warning)]";
+  }
+  if (tone === "danger") {
+    return "text-[var(--danger)]";
+  }
+  return "text-[var(--text)]";
+}
+
+function DetailMetric({
+  label,
+  value,
+  tone = "text",
+}: {
+  label: string;
+  value: string;
+  tone?: "accent" | "warning" | "danger" | "text";
+}) {
+  return (
+    <div className="border border-[var(--border)] bg-[var(--bg-elevated)] px-4 py-4">
+      <div className="mono text-[10px] uppercase tracking-[0.24em] text-[var(--muted)]">{label}</div>
+      <div className={`mt-3 text-sm leading-6 ${detailValueClass(tone)}`}>{value}</div>
+    </div>
+  );
+}
+
+function DecisionSnapshot({ stateData }: { stateData: Record<string, unknown> }) {
+  const signal = asRecord(stateData.signal);
+  const riskDecision = asRecord(stateData.risk_decision);
+  const executionSummary = asRecord(stateData.execution_summary);
+  const noTradeReason = asRecord(stateData.no_trade_reason);
+
+  if (!executionSummary) {
+    return (
+      <DetailPanel className="p-5">
+        <DetailHeader eyebrow="Decision" title="Latest Decision Snapshot" />
+        <div className="border border-[var(--border)] bg-[var(--bg-elevated)] p-5 text-sm leading-6 text-[var(--muted)]">
+          No normalized decision summary is available in this checkpoint yet.
+        </div>
+      </DetailPanel>
+    );
+  }
+
+  const action = typeof executionSummary.action === "string" ? executionSummary.action : null;
+  const summary =
+    typeof executionSummary.summary === "string"
+      ? executionSummary.summary
+      : "No operator summary available.";
+  const reasonCode =
+    typeof executionSummary.reason_code === "string" ? executionSummary.reason_code : "--";
+  const reasonMessage =
+    typeof noTradeReason?.message === "string"
+      ? noTradeReason.message
+      : typeof executionSummary.reason_message === "string"
+        ? executionSummary.reason_message
+        : "--";
+
+  return (
+    <DetailPanel className="p-5">
+      <DetailHeader eyebrow="Decision" title="Latest Decision Snapshot" action={String(stateData.cycle_id ?? "--")} />
+      <div className="border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <div className="text-base font-medium text-[var(--text)]">{summary}</div>
+            <p className="mt-2 text-sm leading-6 text-[var(--muted)]">{reasonMessage}</p>
+          </div>
+          <span
+            className={`mono inline-flex items-center border px-3 py-2 text-[10px] uppercase tracking-[0.24em] ${detailValueClass(decisionTone(action))} ${
+              action === "filled"
+                ? "border-[rgba(143,214,255,0.36)] bg-[rgba(143,214,255,0.09)]"
+                : action === "halted"
+                  ? "border-[rgba(255,109,123,0.36)] bg-[rgba(255,109,123,0.08)]"
+                  : "border-[rgba(241,187,103,0.34)] bg-[rgba(241,187,103,0.08)]"
+            }`}
+          >
+            {action ?? "unknown"}
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <DetailMetric label="Reason Code" value={reasonCode} tone={decisionTone(action)} />
+        <DetailMetric
+          label="Target After Risk"
+          value={
+            typeof riskDecision?.target_after_risk === "number"
+              ? riskDecision.target_after_risk.toFixed(4)
+              : typeof signal?.target_position === "number"
+                ? signal.target_position.toFixed(4)
+                : "--"
+          }
+          tone="accent"
+        />
+        <DetailMetric
+          label="Current Position"
+          value={
+            typeof riskDecision?.current_position === "number"
+              ? riskDecision.current_position.toFixed(4)
+              : "--"
+          }
+        />
+        <DetailMetric
+          label="Delta Notional"
+          value={
+            typeof riskDecision?.delta_notional_usdc === "number"
+              ? String(riskDecision.delta_notional_usdc.toFixed(2))
+              : "--"
+          }
+        />
+      </div>
+    </DetailPanel>
+  );
+}
+
 export function RunDetail({ runId }: { runId: string }) {
   const manifest = useSWR<ArtifactDocumentResponse>(
     `/runs/${runId}/manifest`,
@@ -182,6 +310,8 @@ export function RunDetail({ runId }: { runId: string }) {
           </DetailPanel>
         </div>
 
+        <DecisionSnapshot stateData={stateData} />
+
         <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
           <DetailPanel className="p-5">
             <DetailHeader eyebrow="Fills" title="Recent Fill Tape" action={`${fills.data.count} rows`} />
@@ -255,6 +385,14 @@ export function RunDetail({ runId }: { runId: string }) {
                     {String(event.cycle_id ?? "--")}
                   </span>
                 </div>
+                <p className="mt-3 text-sm leading-6 text-[var(--text)]">
+                  {String(
+                    asRecord(event.execution_summary)?.summary ??
+                      asRecord(event.no_trade_reason)?.message ??
+                      event.reason ??
+                      "artifact event"
+                  )}
+                </p>
                 <pre className="mt-3 overflow-x-auto text-xs leading-6 text-[var(--muted)]">
                   {JSON.stringify(event, null, 2)}
                 </pre>

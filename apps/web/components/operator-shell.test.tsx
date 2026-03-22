@@ -50,6 +50,43 @@ const overviewResponse = {
   latest_state: {
     equity_usdc: 10125,
   },
+  latest_decision: {
+    cycle_id: "cycle-2",
+    mode: "paper",
+    product_id: "BTC-PERP-INTX",
+    signal: {
+      strategy: "momentum",
+      raw_value: 0.0042,
+      target_position: 0.25,
+    },
+    risk_decision: {
+      target_before_risk: 0.25,
+      target_after_risk: 0.25,
+      current_position: 0.15,
+      target_notional_usdc: 5000,
+      current_notional_usdc: 3000,
+      delta_notional_usdc: 2000,
+      rebalance_threshold: 0.1,
+      min_trade_notional_usdc: 10,
+      halted: false,
+      rebalance_eligible: true,
+    },
+    execution_summary: {
+      action: "filled",
+      reason_code: "filled",
+      reason_message: "Cycle placed and filled a rebalance order.",
+      summary: "Filled a rebalance order toward the target position.",
+    },
+    no_trade_reason: null,
+    order_intent: {
+      product_id: "BTC-PERP-INTX",
+      side: "BUY",
+    },
+    fill: {
+      product_id: "BTC-PERP-INTX",
+      side: "BUY",
+    },
+  },
   recent_events: [
     {
       event_type: "cycle",
@@ -151,6 +188,8 @@ describe("OperatorShell", () => {
 
     expect(await screen.findByText("Start or stop the local paper process")).toBeInTheDocument();
     expect(await screen.findByText("$10,125")).toBeInTheDocument();
+    expect(screen.getByText("Latest Cycle Decision")).toBeInTheDocument();
+    expect(screen.getByText("Filled a rebalance order toward the target position.")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Start Paper Run" }));
 
