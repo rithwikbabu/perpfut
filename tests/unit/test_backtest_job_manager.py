@@ -55,3 +55,34 @@ def test_status_marks_orphaned_completed_job_as_succeeded(monkeypatch, tmp_path)
     assert jobs[0].status == "succeeded"
     assert jobs[0].suite_id == "suite-1"
     assert jobs[0].run_ids == ["run-1", "run-2"]
+
+
+def test_status_marks_failed_job_and_surfaces_log_tail(monkeypatch, tmp_path) -> None:
+    manager = BacktestJobManager(tmp_path)
+    request = _request()
+    log_path = manager.control_dir / "job-2.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text("line one\nterminal failure\n", encoding="utf-8")
+    metadata = BacktestJobMetadata(
+        job_id="job-2",
+        status="running",
+        pid=12346,
+        created_at="2026-03-22T00:00:00+00:00",
+        started_at="2026-03-22T00:00:00+00:00",
+        finished_at=None,
+        suite_id=None,
+        dataset_id=None,
+        run_ids=(),
+        error=None,
+        log_path=str(log_path),
+        request=request.model_dump(by_alias=True),
+    )
+    manager._write_metadata(manager.active_metadata_path, metadata)
+    manager._write_metadata(manager.jobs_dir / "job-2.json", metadata)
+    monkeypatch.setattr(manager, "_poll_process", lambda pid: (False, 1))
+
+    assert manager.status() is None
+
+    jobs = manager.list_jobs(limit=1)
+    assert jobs[0].status == "failed"
+    assert jobs[0].error == "terminal failure"
