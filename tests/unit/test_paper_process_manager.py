@@ -153,3 +153,18 @@ def test_status_raises_when_control_lock_times_out(monkeypatch, tmp_path) -> Non
 
     with pytest.raises(PaperRunStateError, match="lock timed out"):
         manager.status()
+
+
+def test_status_reaps_stale_control_lock(monkeypatch, tmp_path) -> None:
+    manager = PaperProcessManager(tmp_path)
+    control_dir = tmp_path / "control"
+    control_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = control_dir / "active_paper.lock"
+    lock_path.write_text("9999", encoding="utf-8")
+
+    monkeypatch.setattr(manager, "_is_process_alive", lambda pid: False)
+
+    status = manager.status()
+
+    assert status.active is False
+    assert not lock_path.exists()

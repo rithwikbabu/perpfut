@@ -214,6 +214,7 @@ class PaperProcessManager:
                 fd = os.open(self.lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
                 break
             except FileExistsError:
+                self._reap_stale_lock()
                 if time.monotonic() >= deadline:
                     raise PaperRunStateError("paper run control lock timed out")
                 time.sleep(0.05)
@@ -231,6 +232,35 @@ class PaperProcessManager:
                 self.lock_path.unlink()
             except FileNotFoundError:
                 pass
+
+    def _reap_stale_lock(self) -> None:
+        try:
+            payload = self.lock_path.read_text(encoding="utf-8").strip()
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            raise PaperRunStateError("failed to inspect paper run control lock") from exc
+
+        if not payload:
+            self._remove_lock_file()
+            return
+
+        try:
+            pid = int(payload)
+        except ValueError:
+            self._remove_lock_file()
+            return
+
+        if not self._is_process_alive(pid):
+            self._remove_lock_file()
+
+    def _remove_lock_file(self) -> None:
+        try:
+            self.lock_path.unlink()
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            raise PaperRunStateError("failed to clear stale paper run control lock") from exc
 
     def _to_status(self, metadata: PaperProcessMetadata, *, active: bool) -> PaperRunStatusResponse:
         return PaperRunStatusResponse(
