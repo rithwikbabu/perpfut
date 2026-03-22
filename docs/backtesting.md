@@ -246,7 +246,9 @@ Historical research routes are rooted at `/api`.
 - `GET /api/backtests/{runId}/fills?limit=`
 - `GET /api/backtest-suites`
 - `GET /api/backtest-suites/{suiteId}`
+- `GET /api/strategy-catalog`
 - `GET /api/sleeves`
+- `POST /api/sleeves`
 - `GET /api/sleeve-comparisons`
 - `GET /api/sleeves/{runId}`
 - `GET /api/portfolio-runs`
@@ -273,6 +275,9 @@ The list endpoints are intentionally split:
 - `/api/sleeves` returns strategy sleeve summaries, optionally filtered by
   `datasetId`
 - `/api/sleeve-comparisons` returns the sleeve leaderboard for one dataset
+- `POST /api/sleeves` launches or reuses sleeves synchronously for one dataset
+- `/api/strategy-catalog` returns the strategy ids and guided builder fields
+  used by the research console
 - `/api/portfolio-runs` returns optimizer portfolio run summaries, optionally
   filtered by `datasetId`
 - `/api/portfolio-run-comparisons` returns the optimizer leaderboard for one
@@ -291,3 +296,30 @@ This is still a bar-based MVP.
   remain single-asset execution paths
 - Multi-strategy optimizer research is still research-only; there is no
   multi-strategy paper/live allocator yet
+
+## Research Controls Workflow
+
+The backtests console now has an actionable research-control strip above the
+read-only lists.
+
+Recommended UI flow:
+
+1. Select one cached dataset in `Datasets`.
+2. In `Research Controls`, build one or more sleeve definitions with:
+   - `strategyInstanceId`
+   - `strategyId`
+   - asset universe
+   - `lookback_candles`
+   - `signal_scale`
+   - optional risk overrides
+3. Click `Launch Sleeves` to create or reuse the requested sleeves.
+4. Either:
+   - stay in `Use Existing Sleeves` mode and launch the optimizer from the
+     selected sleeve checklist, or
+   - switch to `Auto-Build From Builder` and launch the optimizer directly from
+     the builder cards
+5. Inspect the populated `Strategy sleeve runs`, `Selected sleeve attribution`,
+   `Portfolio optimizer runs`, and `Selected optimizer run` panes.
+
+The UI keeps launches synchronous in v1, so the user-visible progress is local
+pending/loading state rather than a background job ticker.

@@ -166,9 +166,22 @@ The backtests console now has three research sections:
 Recommended UI flow:
 
 1. Build or select a cached dataset in `Datasets`.
-2. Use that dataset context to inspect sleeves in `Strategy Sleeves`.
-3. Inspect optimizer runs and rankings in `Portfolio Optimizer`.
-4. Open a backtest run detail page when you need full minute-bar execution
+2. In `Research Controls`, define one or more sleeve builder cards with:
+   - `strategyInstanceId`
+   - `strategyId`
+   - asset universe
+   - `lookback_candles`
+   - `signal_scale`
+   - optional risk overrides
+3. Click `Launch Sleeves` to create or reuse those strategy sleeves.
+4. In the optimizer controls, either:
+   - keep `Use Existing Sleeves` selected and choose the sleeve ids to optimize,
+     or
+   - switch to `Auto-Build From Builder` to reuse the current builder cards
+     directly
+5. Launch the optimizer and inspect the populated optimizer list, rankings, and
+   selected-run detail pane.
+6. Open a backtest run detail page when you need full minute-bar execution
    context.
 
 The selected dataset acts as the scoping key for sleeves and optimizer runs in
