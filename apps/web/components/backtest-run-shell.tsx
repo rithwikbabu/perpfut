@@ -15,9 +15,11 @@ import {
 import { ConsoleNav } from "@/components/console-nav";
 import {
   buildAnalysisMetrics,
+  formatDateRange,
   formatCount,
   formatMoney,
   formatPercent,
+  formatSharpe,
   formatSigned,
   formatSignedPercent,
   formatTimestamp,
@@ -153,7 +155,7 @@ function PerformancePanel({ detail }: { detail: BacktestRunDetailResponse }) {
     <>
       <ShellPanel className="p-5">
         <ShellHeader eyebrow="Performance" title="Canonical backtest analysis" action={`${formatCount(metrics.cycleCount)} cycles`} />
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           <DetailMetric label="Total Return" value={formatSignedPercent(metrics.totalReturnPct)} tone="accent" />
           <DetailMetric
             label="Total P&L"
@@ -161,6 +163,11 @@ function PerformancePanel({ detail }: { detail: BacktestRunDetailResponse }) {
             tone={metricTone(metrics.totalPnlUsd)}
           />
           <DetailMetric label="Max Drawdown" value={formatPercent(metrics.maxDrawdownPct)} tone="warning" />
+          <DetailMetric label="Sharpe" value={formatSharpe(detail.analysis.sharpe_ratio)} />
+          <DetailMetric
+            label="Date Range"
+            value={formatDateRange(detail.analysis.date_range_start, detail.analysis.date_range_end)}
+          />
           <DetailMetric label="Turnover" value={formatMoney(metrics.turnoverUsd)} />
           <DetailMetric label="Fills" value={formatCount(metrics.fillCount)} />
         </div>
@@ -554,11 +561,13 @@ export function BacktestRunShell({ runId }: { runId: string }) {
                 Analysis Window
               </div>
               <div className="mt-3 text-sm text-[var(--text)]">
-                {detail.data ? formatTimestamp(detail.data.analysis.ended_at) : "--"}
+                {detail.data
+                  ? formatDateRange(detail.data.analysis.date_range_start, detail.data.analysis.date_range_end)
+                  : "--"}
               </div>
               <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
                 {detail.data
-                  ? `${formatCount(detail.data.analysis.fill_count)} fills · ${formatCount(detail.data.analysis.cycle_count)} cycles`
+                  ? `${formatSharpe(detail.data.analysis.sharpe_ratio)} Sharpe · ${formatCount(detail.data.analysis.fill_count)} fills · ${formatCount(detail.data.analysis.cycle_count)} cycles`
                   : "No analysis summary loaded yet."}
               </p>
             </div>

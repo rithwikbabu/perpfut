@@ -6,9 +6,12 @@ import useSWR from "swr";
 
 import { ConsoleNav } from "@/components/console-nav";
 import {
+  formatDateRange,
   formatCount,
+  formatDurationSeconds,
   formatMoney,
   formatPercent,
+  formatSharpe,
   formatSignedPercent,
   formatTimestamp,
 } from "@/lib/dashboard-metrics";
@@ -105,14 +108,28 @@ function ShellHeader({
 function MetricChip({
   label,
   value,
+  tone = "text",
 }: {
   label: string;
   value: string;
+  tone?: "accent" | "warning" | "danger" | "text";
 }) {
   return (
     <div className="border border-[var(--border)] bg-[var(--bg-elevated)] px-4 py-4">
       <div className="mono text-[10px] uppercase tracking-[0.24em] text-[var(--muted)]">{label}</div>
-      <div className="mt-3 text-sm text-[var(--text)]">{value}</div>
+      <div
+        className={`mt-3 text-sm ${
+          tone === "accent"
+            ? "text-[var(--accent)]"
+            : tone === "warning"
+              ? "text-[var(--warning)]"
+              : tone === "danger"
+                ? "text-[var(--danger)]"
+                : "text-[var(--text)]"
+        }`}
+      >
+        {value}
+      </div>
     </div>
   );
 }
@@ -144,6 +161,26 @@ function formatControlError(error: unknown): ControlFeedback {
     tone: "danger",
     message: "Unable to start the backtest suite.",
   };
+}
+
+function jobTone(status: string | null | undefined): "accent" | "warning" | "danger" | "text" {
+  if (status === "running") {
+    return "accent";
+  }
+  if (status === "succeeded") {
+    return "warning";
+  }
+  if (status === "failed") {
+    return "danger";
+  }
+  return "text";
+}
+
+function jobStatusLabel(status: string | null | undefined): string {
+  if (!status) {
+    return "idle";
+  }
+  return status;
 }
 
 function toggleSelection(items: string[], value: string): string[] {
@@ -322,7 +359,12 @@ export function BacktestsShell() {
     }
   }
 
-  const activeJob = backtests.data?.active_job ?? suites.data?.active_job ?? null;
+  const activeJob =
+    backtests.data?.active_job ??
+    suites.data?.active_job ??
+    backtests.data?.latest_job ??
+    suites.data?.latest_job ??
+    null;
   const latestSuite = suites.data?.items[0] ?? null;
   const hasConsoleError = backtests.error || suites.error;
 
@@ -343,14 +385,25 @@ export function BacktestsShell() {
           <div className="space-y-4">
             <div className="border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
               <div className="mono text-[10px] uppercase tracking-[0.28em] text-[var(--warning)]">
-                Active Job
+                Backtest Status
               </div>
-              <div className="mt-3 text-sm text-[var(--text)]">
-                {activeJob ? `${activeJob.status.toUpperCase()} · ${activeJob.job_id}` : "No active backtest job"}
+              <div
+                className={`mt-3 text-sm ${
+                  jobTone(activeJob?.status) === "accent"
+                    ? "text-[var(--accent)]"
+                    : jobTone(activeJob?.status) === "warning"
+                      ? "text-[var(--warning)]"
+                      : jobTone(activeJob?.status) === "danger"
+                        ? "text-[var(--danger)]"
+                        : "text-[var(--text)]"
+                }`}
+              >
+                {activeJob ? `${jobStatusLabel(activeJob.status).toUpperCase()} · ${activeJob.job_id}` : "No recent backtest job"}
               </div>
               <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
                 {activeJob
-                  ? `${activeJob.request.productIds.join(", ")} · ${activeJob.request.strategyIds.join(", ")}`
+                  ? activeJob.phase_message ??
+                    `${activeJob.request.productIds.join(", ")} · ${activeJob.request.strategyIds.join(", ")}`
                   : "Launch a suite to populate the shared historical backtest queue."}
               </p>
             </div>
@@ -365,6 +418,13 @@ export function BacktestsShell() {
                   <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
                     {latestSuite.strategies.join(", ")} · {latestSuite.products.join(", ")}
                   </p>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <MetricChip
+                      label="Date Range"
+                      value={formatDateRange(latestSuite.date_range_start, latestSuite.date_range_end)}
+                    />
+                    <MetricChip label="Sharpe" value={formatSharpe(latestSuite.sharpe_ratio)} />
+                  </div>
                 </>
               ) : (
                 <p className="mt-3 text-sm leading-6 text-[var(--muted)]">
@@ -400,7 +460,9 @@ export function BacktestsShell() {
               </div>
               <div className="border border-[var(--border)] px-3 py-3">
                 <div className="mono text-[10px] text-[var(--accent)]">Queue</div>
-                <div className="mt-2 text-sm text-[var(--text)]">{activeJob ? "1 active" : "idle"}</div>
+                <div className="mt-2 text-sm text-[var(--text)]">
+                  {activeJob?.status === "running" ? "1 active" : activeJob ? activeJob.status : "idle"}
+                </div>
               </div>
             </div>
           </header>
@@ -535,33 +597,51 @@ export function BacktestsShell() {
               {activeJob ? (
                 <div className="space-y-4">
                   <div className="border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
-                    <div className="mono text-[10px] uppercase tracking-[0.24em] text-[var(--accent)]">
+                    <div
+                      className={`mono text-[10px] uppercase tracking-[0.24em] ${
+                        jobTone(activeJob.status) === "accent"
+                          ? "text-[var(--accent)]"
+                          : jobTone(activeJob.status) === "warning"
+                            ? "text-[var(--warning)]"
+                            : jobTone(activeJob.status) === "danger"
+                              ? "text-[var(--danger)]"
+                              : "text-[var(--muted)]"
+                      }`}
+                    >
                       {activeJob.status}
                     </div>
                     <div className="mt-3 text-base font-medium text-[var(--text)]">{activeJob.job_id}</div>
                     <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
-                      {activeJob.request.productIds.join(", ")} · {activeJob.request.strategyIds.join(", ")}
+                      {activeJob.phase_message ??
+                        `${activeJob.request.productIds.join(", ")} · ${activeJob.request.strategyIds.join(", ")}`}
                     </p>
                   </div>
-                  <div className="grid gap-4 md:grid-cols-2">
+                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                    <MetricChip label="Phase" value={activeJob.phase ?? "--"} tone={jobTone(activeJob.status)} />
+                    <MetricChip
+                      label="Progress"
+                      value={
+                        activeJob.total_runs
+                          ? `${formatCount(activeJob.completed_runs ?? 0)} / ${formatCount(activeJob.total_runs)} · ${formatPercent(activeJob.progress_pct)}`
+                          : "--"
+                      }
+                      tone={jobTone(activeJob.status)}
+                    />
+                    <MetricChip label="Elapsed" value={formatDurationSeconds(activeJob.elapsed_seconds)} />
+                    <MetricChip label="ETA" value={formatDurationSeconds(activeJob.eta_seconds)} />
+                    <MetricChip label="Heartbeat" value={formatTimestamp(activeJob.last_heartbeat_at)} />
                     <MetricChip label="Created" value={formatTimestamp(activeJob.created_at)} />
                     <MetricChip
                       label="Finished"
                       value={activeJob.finished_at ? formatTimestamp(activeJob.finished_at) : "running"}
                     />
-                    <MetricChip
-                      label="Suite"
-                      value={activeJob.suite_id ?? "pending"}
-                    />
-                    <MetricChip
-                      label="Run Count"
-                      value={formatCount(activeJob.run_ids.length)}
-                    />
+                    <MetricChip label="Suite" value={activeJob.suite_id ?? "pending"} />
+                    <MetricChip label="Run Count" value={formatCount(activeJob.run_ids.length)} />
                   </div>
                   {activeJob.error ? <ErrorBlock message={activeJob.error} /> : null}
                 </div>
               ) : (
-                <LoadingBlock title="No active backtest job. Launch a suite to populate this queue." />
+                <LoadingBlock title="No recent backtest job. Launch a suite to populate this queue." />
               )}
             </ShellPanel>
           </div>
@@ -597,6 +677,13 @@ export function BacktestsShell() {
                       <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
                         {suite.strategies.join(", ")} · {suite.products.join(", ")}
                       </p>
+                      <div className="mt-3 grid gap-2 md:grid-cols-2">
+                        <MetricChip
+                          label="Date Range"
+                          value={formatDateRange(suite.date_range_start, suite.date_range_end)}
+                        />
+                        <MetricChip label="Sharpe" value={formatSharpe(suite.sharpe_ratio)} />
+                      </div>
                     </button>
                   ))}
                 </div>
@@ -622,6 +709,8 @@ export function BacktestsShell() {
                       <tr>
                         <th className="px-4 py-3 font-medium">Rank</th>
                         <th className="px-4 py-3 font-medium">Strategy</th>
+                        <th className="px-4 py-3 font-medium">Date Range</th>
+                        <th className="px-4 py-3 font-medium">Sharpe</th>
                         <th className="px-4 py-3 font-medium">Return</th>
                         <th className="px-4 py-3 font-medium">P&amp;L</th>
                         <th className="px-4 py-3 font-medium">Drawdown</th>
@@ -640,6 +729,10 @@ export function BacktestsShell() {
                               {item.strategy_id ?? item.run_id}
                             </Link>
                           </td>
+                          <td className="px-4 py-3 text-[var(--muted)]">
+                            {formatDateRange(item.date_range_start, item.date_range_end)}
+                          </td>
+                          <td className="px-4 py-3 text-[var(--text)]">{formatSharpe(item.sharpe_ratio)}</td>
                           <td className="px-4 py-3 text-[var(--accent)]">{formatSignedPercent(item.total_return_pct)}</td>
                           <td className="px-4 py-3 text-[var(--text)]">{formatMoney(item.total_pnl_usdc)}</td>
                           <td className="px-4 py-3 text-[var(--warning)]">{formatPercent(item.max_drawdown_pct)}</td>
@@ -671,6 +764,8 @@ export function BacktestsShell() {
                       <th className="px-4 py-3 font-medium">Run</th>
                       <th className="px-4 py-3 font-medium">Suite</th>
                       <th className="px-4 py-3 font-medium">Strategy</th>
+                      <th className="px-4 py-3 font-medium">Date Range</th>
+                      <th className="px-4 py-3 font-medium">Sharpe</th>
                       <th className="px-4 py-3 font-medium">Return</th>
                       <th className="px-4 py-3 font-medium">P&amp;L</th>
                       <th className="px-4 py-3 font-medium">Drawdown</th>
@@ -690,6 +785,10 @@ export function BacktestsShell() {
                         </td>
                         <td className="px-4 py-3 text-[var(--muted)]">{run.suite_id ?? "--"}</td>
                         <td className="px-4 py-3 text-[var(--text)]">{run.strategy_id ?? "--"}</td>
+                        <td className="px-4 py-3 text-[var(--muted)]">
+                          {formatDateRange(run.date_range_start, run.date_range_end)}
+                        </td>
+                        <td className="px-4 py-3 text-[var(--text)]">{formatSharpe(run.sharpe_ratio)}</td>
                         <td className="px-4 py-3 text-[var(--accent)]">{formatSignedPercent(run.total_return_pct)}</td>
                         <td className="px-4 py-3 text-[var(--text)]">{formatMoney(run.total_pnl_usdc)}</td>
                         <td className="px-4 py-3 text-[var(--warning)]">{formatPercent(run.max_drawdown_pct)}</td>

@@ -113,3 +113,58 @@ export function formatTimestamp(value: string | null): string {
   }
   return new Date(parsed).toLocaleString();
 }
+
+export function formatDurationSeconds(value: number | null | undefined): string {
+  if (value === null || value === undefined) {
+    return "--";
+  }
+  const rounded = Math.max(Math.round(value), 0);
+  const hours = Math.floor(rounded / 3600);
+  const minutes = Math.floor((rounded % 3600) / 60);
+  const seconds = rounded % 60;
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  if (minutes > 0) {
+    return `${minutes}m ${seconds}s`;
+  }
+  return `${seconds}s`;
+}
+
+export function formatSharpe(value: number | null | undefined): string {
+  if (value === null || value === undefined) {
+    return "--";
+  }
+  return value.toFixed(2);
+}
+
+export function formatDateRange(start: string | null | undefined, end: string | null | undefined): string {
+  if (!start && !end) {
+    return "--";
+  }
+  const formattedStart = formatCompactTimestamp(start);
+  const formattedEnd = formatCompactTimestamp(end);
+  if (formattedStart === "--") {
+    return formattedEnd;
+  }
+  if (formattedEnd === "--") {
+    return formattedStart;
+  }
+  return `${formattedStart} → ${formattedEnd}`;
+}
+
+function formatCompactTimestamp(value: string | null | undefined): string {
+  if (!value) {
+    return "--";
+  }
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) {
+    return value;
+  }
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(parsed));
+}

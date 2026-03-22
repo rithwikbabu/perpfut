@@ -68,8 +68,11 @@ describe("BacktestsShell", () => {
               created_at: "2026-03-22T06:00:00Z",
               suite_id: "suite-1",
               dataset_id: "dataset-1",
+              date_range_start: "2026-03-20T12:00:00+00:00",
+              date_range_end: "2026-03-21T12:00:00+00:00",
               product_id: "MULTI_ASSET",
               strategy_id: "momentum",
+              sharpe_ratio: 1.87,
               total_pnl_usdc: 120,
               total_return_pct: 0.012,
               max_drawdown_usdc: 40,
@@ -81,7 +84,42 @@ describe("BacktestsShell", () => {
             },
           ],
           count: 1,
-          active_job: null,
+          active_job: {
+            job_id: "job-1",
+            status: "running",
+            phase: "running_suite",
+            phase_message: "Completed strategy 1 of 2: momentum",
+            pid: 4001,
+            created_at: "2026-03-22T06:05:00Z",
+            started_at: "2026-03-22T06:05:00Z",
+            finished_at: null,
+            total_runs: 2,
+            completed_runs: 1,
+            progress_pct: 0.5,
+            elapsed_seconds: 90,
+            eta_seconds: 90,
+            last_heartbeat_at: "2026-03-22T06:06:00Z",
+            suite_id: null,
+            dataset_id: null,
+            run_ids: [],
+            error: null,
+            log_path: "runs/backtests/control/job-1.log",
+            request: {
+              productIds: ["BTC-PERP-INTX", "ETH-PERP-INTX"],
+              strategyIds: ["momentum", "mean_reversion"],
+              start: "2026-03-21T12:00:00+00:00",
+              end: "2026-03-22T12:00:00+00:00",
+              granularity: "ONE_MINUTE",
+              startingCollateralUsdc: 10000,
+              lookbackCandles: 20,
+              signalScale: 12,
+              maxAbsPosition: 0.5,
+              maxGrossPosition: 1.0,
+              maxLeverage: 2.0,
+              slippageBps: 3,
+            },
+          },
+          latest_job: null,
         };
       }
       if (path === "/backtest-suites") {
@@ -91,6 +129,9 @@ describe("BacktestsShell", () => {
               suite_id: "suite-1",
               created_at: "2026-03-22T06:00:00Z",
               dataset_id: "dataset-1",
+              date_range_start: "2026-03-20T12:00:00+00:00",
+              date_range_end: "2026-03-21T12:00:00+00:00",
+              sharpe_ratio: 1.87,
               products: ["BTC-PERP-INTX", "ETH-PERP-INTX"],
               strategies: ["momentum", "mean_reversion"],
               run_ids: ["run-2", "run-1"],
@@ -98,6 +139,7 @@ describe("BacktestsShell", () => {
           ],
           count: 1,
           active_job: null,
+          latest_job: null,
         };
       }
       if (path === "/backtest-suites/suite-1") {
@@ -105,6 +147,9 @@ describe("BacktestsShell", () => {
           suite_id: "suite-1",
           created_at: "2026-03-22T06:00:00Z",
           dataset_id: "dataset-1",
+          date_range_start: "2026-03-20T12:00:00+00:00",
+          date_range_end: "2026-03-21T12:00:00+00:00",
+          sharpe_ratio: 1.87,
           products: ["BTC-PERP-INTX", "ETH-PERP-INTX"],
           strategies: ["momentum", "mean_reversion"],
           run_ids: ["run-2", "run-1"],
@@ -114,6 +159,9 @@ describe("BacktestsShell", () => {
               rank: 1,
               run_id: "run-2",
               strategy_id: "momentum",
+              date_range_start: "2026-03-20T12:00:00+00:00",
+              date_range_end: "2026-03-21T12:00:00+00:00",
+              sharpe_ratio: 1.87,
               total_pnl_usdc: 120,
               total_return_pct: 0.012,
               max_drawdown_usdc: 40,
@@ -132,10 +180,18 @@ describe("BacktestsShell", () => {
     mockedStartBacktest.mockResolvedValue({
       job_id: "job-1",
       status: "running",
+      phase: "running_suite",
+      phase_message: "Completed strategy 1 of 2: momentum",
       pid: 4001,
       created_at: "2026-03-22T06:05:00Z",
       started_at: "2026-03-22T06:05:00Z",
       finished_at: null,
+      total_runs: 2,
+      completed_runs: 1,
+      progress_pct: 0.5,
+      elapsed_seconds: 90,
+      eta_seconds: 90,
+      last_heartbeat_at: "2026-03-22T06:06:00Z",
       suite_id: null,
       dataset_id: null,
       run_ids: [],
@@ -162,6 +218,8 @@ describe("BacktestsShell", () => {
     expect(await screen.findByText("Start a backtest suite")).toBeInTheDocument();
     expect(screen.getByText("Selected suite ranking")).toBeInTheDocument();
     expect(screen.getByText("Completed backtest runs")).toBeInTheDocument();
+    expect((await screen.findAllByText("Completed strategy 1 of 2: momentum")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("1.87").length).toBeGreaterThan(0);
     expect(screen.getByRole("link", { name: "run-2" })).toHaveAttribute("href", "/backtests/run-2");
 
     await userEvent.click(screen.getByRole("button", { name: "SOL-PERP-INTX" }));
@@ -354,6 +412,55 @@ describe("BacktestsShell", () => {
     await waitFor(() => expect(mockedStartBacktest).toHaveBeenCalledTimes(1));
     expect(await screen.findByText("backtest job already running")).toBeInTheDocument();
   });
+
+  it("renders the latest failed job when no backtest is currently active", async () => {
+    mockedFetchJson.mockImplementation(async (path: string) => {
+      if (path === "/backtests") {
+        return {
+          items: [],
+          count: 0,
+          active_job: null,
+          latest_job: {
+            job_id: "job-failed",
+            status: "failed",
+            phase: "failed",
+            phase_message: "Backtest suite failed.",
+            pid: null,
+            created_at: "2026-03-22T08:00:00Z",
+            started_at: "2026-03-22T08:00:00Z",
+            finished_at: "2026-03-22T08:03:00Z",
+            total_runs: 2,
+            completed_runs: 1,
+            progress_pct: 0.5,
+            elapsed_seconds: 180,
+            eta_seconds: 0,
+            last_heartbeat_at: "2026-03-22T08:02:00Z",
+            suite_id: null,
+            dataset_id: null,
+            run_ids: [],
+            error: "backtest run failed: boom",
+            log_path: "runs/backtests/control/job-failed.log",
+            request: {
+              productIds: ["BTC-PERP-INTX"],
+              strategyIds: ["momentum", "mean_reversion"],
+              start: "2026-03-21T12:00:00+00:00",
+              end: "2026-03-22T12:00:00+00:00",
+              granularity: "ONE_MINUTE",
+            },
+          },
+        };
+      }
+      if (path === "/backtest-suites") {
+        return { items: [], count: 0, active_job: null, latest_job: null };
+      }
+      throw new Error(`unexpected path ${path}`);
+    });
+
+    renderBacktestsShell();
+
+    expect(await screen.findByText("FAILED · job-failed")).toBeInTheDocument();
+    expect(screen.getByText("backtest run failed: boom")).toBeInTheDocument();
+  });
 });
 
 describe("BacktestRunShell", () => {
@@ -392,6 +499,9 @@ describe("BacktestRunShell", () => {
             strategy_id: "momentum",
             started_at: "2026-03-22T02:00:00Z",
             ended_at: "2026-03-22T02:10:00Z",
+            date_range_start: "2026-03-20T12:00:00+00:00",
+            date_range_end: "2026-03-21T12:00:00+00:00",
+            sharpe_ratio: 1.52,
             cycle_count: 12,
             starting_equity_usdc: 10000,
             ending_equity_usdc: 10120,
@@ -477,6 +587,7 @@ describe("BacktestRunShell", () => {
     expect(screen.getByText("Latest asset decision set")).toBeInTheDocument();
     expect(screen.getByText("Recent backtest fill tape")).toBeInTheDocument();
     expect(screen.getByText("Latest per-asset positions")).toBeInTheDocument();
+    expect(screen.getAllByText("1.52").length).toBeGreaterThan(0);
     expect(screen.getByRole("link", { name: /Back to Backtests/i })).toHaveAttribute("href", "/backtests");
   });
 
