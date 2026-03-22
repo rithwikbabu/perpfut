@@ -206,6 +206,7 @@ def test_backtests_list_and_detail_endpoints(monkeypatch, tmp_path) -> None:
     assert suites_response.json()["latest_job"] is None
 
     assert suite_detail_response.status_code == 200
+    assert suite_detail_response.json()["date_range_start"] == "2026-03-20T00:00:00+00:00"
     assert suite_detail_response.json()["items"][0]["rank"] == 1
     assert suite_detail_response.json()["items"][0]["date_range_start"] == "2026-03-20T00:00:00+00:00"
 

@@ -271,6 +271,9 @@ class BacktestSuiteDetailResponse(BaseModel):
     suite_id: str
     created_at: str | None = None
     dataset_id: str | None = None
+    date_range_start: str | None = None
+    date_range_end: str | None = None
+    sharpe_ratio: float | None = None
     products: list[str] = Field(default_factory=list)
     strategies: list[str] = Field(default_factory=list)
     run_ids: list[str] = Field(default_factory=list)

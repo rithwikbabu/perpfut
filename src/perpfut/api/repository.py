@@ -150,6 +150,9 @@ def load_backtest_suite_detail(suite_id: str) -> BacktestSuiteDetailResponse:
         suite_id=summary.suite_id,
         created_at=summary.created_at,
         dataset_id=summary.dataset_id,
+        date_range_start=summary.date_range_start,
+        date_range_end=summary.date_range_end,
+        sharpe_ratio=summary.sharpe_ratio,
         products=list(summary.products),
         strategies=list(summary.strategies),
         run_ids=list(summary.run_ids),
@@ -189,6 +192,9 @@ def _load_backtest_suite_summary(base_dir: Path, suite_id: str) -> BacktestSuite
         suite_id=suite_id,
         created_at=_coerce_str(manifest.get("created_at")),
         dataset_id=_coerce_str(manifest.get("dataset_id")),
+        date_range_start=_coerce_str(manifest.get("date_range_start")),
+        date_range_end=_coerce_str(manifest.get("date_range_end")),
+        sharpe_ratio=_load_backtest_suite_sharpe(base_dir, suite_id=suite_id),
         products=[
             item
             for item in manifest.get("products", [])
@@ -386,3 +392,13 @@ def _validate_optional_model(model: Any, payload: Any) -> Any | None:
         return model.model_validate(payload)
     except ValidationError:
         return None
+
+
+def _load_backtest_suite_sharpe(base_dir: Path, *, suite_id: str) -> float | None:
+    try:
+        comparison = compare_backtest_suite(base_dir, suite_id=suite_id)
+    except (FileNotFoundError, OSError, json.JSONDecodeError, ValueError):
+        return None
+    if not comparison.items:
+        return None
+    return comparison.items[0].sharpe_ratio
