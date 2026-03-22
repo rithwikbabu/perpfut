@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import useSWR from "swr";
 import {
   CartesianGrid,
@@ -12,9 +13,35 @@ import {
   YAxis,
 } from "recharts";
 
-import { buildDashboardMetrics, formatMoney, formatSigned, formatTimestamp } from "@/lib/dashboard-metrics";
-import { fetchJson, type DashboardOverviewResponse, type RunsListResponse } from "@/lib/perpfut-api";
+import {
+  buildDashboardMetrics,
+  formatMoney,
+  formatSigned,
+  formatTimestamp,
+} from "@/lib/dashboard-metrics";
+import {
+  ApiError,
+  fetchJson,
+  startPaperRun,
+  stopPaperRun,
+  type DashboardOverviewResponse,
+  type PaperRunRequest,
+  type PaperRunStatusResponse,
+  type RunsListResponse,
+} from "@/lib/perpfut-api";
 
+
+const DEFAULT_PAPER_FORM = {
+  productId: "BTC-PERP-INTX",
+  iterations: "1440",
+  intervalSeconds: "60",
+  startingCollateralUsdc: "10000",
+};
+
+type ControlFeedback = {
+  tone: "success" | "danger" | "warning";
+  message: string;
+};
 
 function Panel({
   children,
@@ -100,13 +127,14 @@ function ErrorPanel({ message }: { message: string }) {
   );
 }
 
-function EmptyPanel() {
+function EmptyPanel({ activeRun }: { activeRun: PaperRunStatusResponse | undefined }) {
   return (
     <Panel className="p-5">
-      <SectionHeader eyebrow="Runs" title="No paper runs yet" />
+      <SectionHeader eyebrow="Runs" title="No paper artifacts yet" />
       <div className="border border-[var(--border)] bg-[var(--bg-elevated)] p-5 text-sm leading-6 text-[var(--muted)]">
-        Start a paper run from the CLI for now, then this dashboard will populate from the
-        artifact history under <span className="mono">runs/</span>.
+        {activeRun?.active
+          ? "A paper process is active. The dashboard will populate once the first run artifacts are written."
+          : "Use the paper control panel to start the first run. The dashboard will populate from the artifact history under runs/."}
       </div>
     </Panel>
   );
@@ -123,13 +151,249 @@ function EventMessage(event: Record<string, unknown>): string {
   return "artifact event";
 }
 
+function ControlBanner({ feedback }: { feedback: ControlFeedback }) {
+  const classes =
+    feedback.tone === "success"
+      ? "border-[rgba(155,246,207,0.3)] bg-[rgba(155,246,207,0.08)] text-[var(--success)]"
+      : feedback.tone === "warning"
+        ? "border-[rgba(241,187,103,0.32)] bg-[rgba(241,187,103,0.08)] text-[var(--warning)]"
+        : "border-[rgba(255,109,123,0.3)] bg-[rgba(255,109,123,0.08)] text-[var(--danger)]";
+
+  return (
+    <div role={feedback.tone === "danger" ? "alert" : "status"} className={`border px-4 py-3 text-sm ${classes}`}>
+      {feedback.message}
+    </div>
+  );
+}
+
+function ControlField({
+  label,
+  name,
+  value,
+  onChange,
+  disabled,
+  inputMode = "text",
+}: {
+  label: string;
+  name: string;
+  value: string;
+  onChange: (name: string, value: string) => void;
+  disabled: boolean;
+  inputMode?: React.HTMLAttributes<HTMLInputElement>["inputMode"];
+}) {
+  return (
+    <label className="block">
+      <span className="mb-2 block text-[11px] uppercase tracking-[0.22em] text-[var(--muted)]">{label}</span>
+      <input
+        aria-label={label}
+        value={value}
+        inputMode={inputMode}
+        disabled={disabled}
+        onChange={(event) => onChange(name, event.target.value)}
+        className="mono w-full border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-3 text-sm text-[var(--text)] outline-none transition focus:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60"
+      />
+    </label>
+  );
+}
+
+function PaperControlPanel({
+  activeRun,
+  latestRunId,
+  form,
+  onFieldChange,
+  onStart,
+  onStop,
+  pendingAction,
+  feedback,
+}: {
+  activeRun: PaperRunStatusResponse | undefined;
+  latestRunId: string | null;
+  form: typeof DEFAULT_PAPER_FORM;
+  onFieldChange: (name: string, value: string) => void;
+  onStart: () => Promise<void>;
+  onStop: () => Promise<void>;
+  pendingAction: "start" | "stop" | null;
+  feedback: ControlFeedback | null;
+}) {
+  const isActive = activeRun?.active ?? false;
+
+  return (
+    <Panel className="p-5">
+      <SectionHeader
+        eyebrow="Paper Control"
+        title="Start or stop the local paper process"
+        action={isActive ? "ACTIVE PROCESS" : "IDLE"}
+      />
+
+      <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+        <form
+          className="space-y-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void onStart();
+          }}
+        >
+          <div className="grid gap-4 md:grid-cols-2">
+            <ControlField
+              label="Product ID"
+              name="productId"
+              value={form.productId}
+              onChange={onFieldChange}
+              disabled={isActive || pendingAction !== null}
+            />
+            <ControlField
+              label="Iterations"
+              name="iterations"
+              value={form.iterations}
+              onChange={onFieldChange}
+              disabled={isActive || pendingAction !== null}
+              inputMode="numeric"
+            />
+            <ControlField
+              label="Interval Seconds"
+              name="intervalSeconds"
+              value={form.intervalSeconds}
+              onChange={onFieldChange}
+              disabled={isActive || pendingAction !== null}
+              inputMode="numeric"
+            />
+            <ControlField
+              label="Starting Collateral USDC"
+              name="startingCollateralUsdc"
+              value={form.startingCollateralUsdc}
+              onChange={onFieldChange}
+              disabled={isActive || pendingAction !== null}
+              inputMode="decimal"
+            />
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="submit"
+              disabled={isActive || pendingAction !== null}
+              className="mono border border-[var(--accent)] bg-[rgba(84,191,255,0.12)] px-4 py-3 text-sm uppercase tracking-[0.24em] text-[var(--text)] transition hover:bg-[rgba(84,191,255,0.18)] disabled:cursor-not-allowed disabled:border-[var(--border)] disabled:bg-[rgba(255,255,255,0.03)] disabled:text-[var(--muted)]"
+            >
+              {pendingAction === "start" ? "Starting..." : "Start Paper Run"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void onStop()}
+              disabled={!isActive || pendingAction !== null}
+              className="mono border border-[rgba(255,109,123,0.34)] bg-[rgba(255,109,123,0.08)] px-4 py-3 text-sm uppercase tracking-[0.24em] text-[var(--text)] transition hover:bg-[rgba(255,109,123,0.14)] disabled:cursor-not-allowed disabled:border-[var(--border)] disabled:bg-[rgba(255,255,255,0.03)] disabled:text-[var(--muted)]"
+            >
+              {pendingAction === "stop" ? "Stopping..." : "Stop Active Run"}
+            </button>
+          </div>
+        </form>
+
+        <div className="border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
+          <div className="mono text-[10px] uppercase tracking-[0.28em] text-[var(--accent)]">
+            Active Paper Status
+          </div>
+          <div className="mt-4 flex items-center gap-3">
+            <span
+              className={`mono inline-flex items-center border px-3 py-2 text-[10px] uppercase tracking-[0.24em] ${
+                isActive
+                  ? "border-[rgba(155,246,207,0.32)] bg-[rgba(155,246,207,0.08)] text-[var(--success)]"
+                  : "border-[var(--border)] bg-[rgba(255,255,255,0.03)] text-[var(--muted)]"
+              }`}
+            >
+              {isActive ? "ACTIVE" : "IDLE"}
+            </span>
+            <span className="text-sm text-[var(--muted)]">
+              {isActive ? `PID ${activeRun?.pid ?? "--"}` : "No process registered"}
+            </span>
+          </div>
+
+          <dl className="mt-4 space-y-3 text-sm">
+            <div className="flex items-center justify-between gap-4">
+              <dt className="text-[var(--muted)]">Product</dt>
+              <dd className="mono text-[var(--text)]">{activeRun?.product_id ?? form.productId}</dd>
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <dt className="text-[var(--muted)]">Started</dt>
+              <dd className="text-[var(--text)]">{formatTimestamp(activeRun?.started_at ?? null)}</dd>
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <dt className="text-[var(--muted)]">Run Artifacts</dt>
+              <dd className="mono text-[var(--text)]">{latestRunId ?? "--"}</dd>
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <dt className="text-[var(--muted)]">Log Path</dt>
+              <dd className="mono text-[var(--text)]">{activeRun?.log_path ?? "--"}</dd>
+            </div>
+          </dl>
+        </div>
+      </div>
+
+      {feedback ? <div className="mt-4"><ControlBanner feedback={feedback} /></div> : null}
+    </Panel>
+  );
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
 }
 
+function parsePaperRunRequest(form: typeof DEFAULT_PAPER_FORM): {
+  request: PaperRunRequest | null;
+  error: string | null;
+} {
+  const productId = form.productId.trim();
+  const iterations = Number.parseInt(form.iterations, 10);
+  const intervalSeconds = Number.parseInt(form.intervalSeconds, 10);
+  const startingCollateralUsdc = Number.parseFloat(form.startingCollateralUsdc);
+
+  if (!productId) {
+    return { request: null, error: "Product ID is required." };
+  }
+  if (!Number.isInteger(iterations) || iterations <= 0) {
+    return { request: null, error: "Iterations must be a positive integer." };
+  }
+  if (!Number.isInteger(intervalSeconds) || intervalSeconds < 0) {
+    return { request: null, error: "Interval Seconds must be an integer greater than or equal to zero." };
+  }
+  if (!Number.isFinite(startingCollateralUsdc) || startingCollateralUsdc <= 0) {
+    return { request: null, error: "Starting Collateral USDC must be greater than zero." };
+  }
+
+  return {
+    request: {
+      productId,
+      iterations,
+      intervalSeconds,
+      startingCollateralUsdc,
+    },
+    error: null,
+  };
+}
+
+function formatControlError(error: unknown): ControlFeedback {
+  if (error instanceof ApiError) {
+    if (error.status === 409) {
+      return {
+        tone: "warning",
+        message: "A paper run is already active. The control panel has refreshed the latest status.",
+      };
+    }
+    return {
+      tone: "danger",
+      message: error.message,
+    };
+  }
+  return {
+    tone: "danger",
+    message: error instanceof Error ? error.message : "Unknown control-plane error.",
+  };
+}
+
 export function OperatorShell() {
+  const [form, setForm] = useState(DEFAULT_PAPER_FORM);
+  const [pendingAction, setPendingAction] = useState<"start" | "stop" | null>(null);
+  const [feedback, setFeedback] = useState<ControlFeedback | null>(null);
+
   const overview = useSWR<DashboardOverviewResponse>(
     "/dashboard/overview?mode=paper&limit=24",
     (path) => fetchJson(path),
@@ -140,12 +404,78 @@ export function OperatorShell() {
     (path) => fetchJson(path),
     { refreshInterval: 2_000 }
   );
+  const activeRun = useSWR<PaperRunStatusResponse>(
+    "/paper-runs/active",
+    (path) => fetchJson(path),
+    { refreshInterval: 2_000 }
+  );
 
   const overviewData = overview.data;
   const metrics = overviewData ? buildDashboardMetrics(overviewData) : null;
   const latestRun = overviewData?.latest_run;
-  const isLoading = overview.isLoading || runs.isLoading;
-  const error = overview.error ?? runs.error;
+  const currentProductId = latestRun?.product_id ?? activeRun.data?.product_id ?? form.productId;
+  const isLoading = overview.isLoading || runs.isLoading || activeRun.isLoading;
+  const error = overview.error ?? runs.error ?? activeRun.error;
+
+  function handleFieldChange(name: string, value: string) {
+    setForm((current) => ({ ...current, [name]: value }));
+  }
+
+  async function refreshOperatorViews(nextActive?: PaperRunStatusResponse) {
+    await Promise.all([
+      overview.mutate(),
+      runs.mutate(),
+      nextActive
+        ? activeRun.mutate(nextActive, { revalidate: false })
+        : activeRun.mutate(),
+    ]);
+  }
+
+  async function handleStart() {
+    const parsed = parsePaperRunRequest(form);
+    if (!parsed.request) {
+      setFeedback({ tone: "danger", message: parsed.error ?? "Invalid request." });
+      return;
+    }
+
+    setPendingAction("start");
+    setFeedback(null);
+
+    try {
+      const status = await startPaperRun(parsed.request);
+      setFeedback({
+        tone: "success",
+        message: `Paper run started for ${status.product_id ?? parsed.request.productId}.`,
+      });
+      await refreshOperatorViews(status);
+    } catch (error) {
+      setFeedback(formatControlError(error));
+      await refreshOperatorViews();
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
+  async function handleStop() {
+    setPendingAction("stop");
+    setFeedback(null);
+
+    try {
+      const status = await stopPaperRun();
+      setFeedback({
+        tone: "success",
+        message: status.active
+          ? "Paper run remains active."
+          : "Paper run stop signal completed.",
+      });
+      await refreshOperatorViews(status);
+    } catch (error) {
+      setFeedback(formatControlError(error));
+      await refreshOperatorViews();
+    } finally {
+      setPendingAction(null);
+    }
+  }
 
   return (
     <main className="min-h-screen px-4 py-4 text-[var(--text)] sm:px-6 lg:px-8">
@@ -155,8 +485,7 @@ export function OperatorShell() {
             <div className="mono text-[11px] uppercase tracking-[0.34em] text-[var(--accent)]">perpfut</div>
             <div className="mt-3 text-2xl font-semibold tracking-tight">Operator Console</div>
             <p className="mt-3 max-w-xs text-sm leading-6 text-[var(--muted)]">
-              Local-first monitoring for paper execution, artifact inspection, and later operator
-              controls.
+              Local-first monitoring for paper execution, artifact inspection, and operator control.
             </p>
             <div className="mt-8 space-y-2">
               {["Overview", "Runs", "Paper Control", "Live Readiness"].map((item, index) => (
@@ -176,22 +505,41 @@ export function OperatorShell() {
             </div>
           </div>
 
-          <div className="border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
-            <div className="mono text-[10px] uppercase tracking-[0.28em] text-[var(--warning)]">
-              Latest Run
+          <div className="space-y-4">
+            <div className="border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
+              <div className="mono text-[10px] uppercase tracking-[0.28em] text-[var(--warning)]">
+                Control Plane
+              </div>
+              <div className="mt-3 text-sm text-[var(--text)]">
+                {activeRun.data?.active ? "Paper process active" : "Paper process idle"}
+              </div>
+              <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
+                {activeRun.data?.active
+                  ? `${activeRun.data.product_id ?? "Unknown product"} · PID ${activeRun.data.pid ?? "--"}`
+                  : "No active paper process is registered."}
+              </p>
             </div>
-            {latestRun ? (
-              <Link href={`/runs/${latestRun.run_id}`} className="mt-3 block text-sm text-[var(--text)] underline decoration-[var(--border)] underline-offset-4">
-                {latestRun.run_id}
-              </Link>
-            ) : (
-              <div className="mt-3 text-sm text-[var(--text)]">No run detected</div>
-            )}
-            <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
-              {latestRun
-                ? `${latestRun.mode?.toUpperCase() ?? "UNKNOWN"} · ${latestRun.product_id ?? "Unknown product"}`
-                : "Waiting for the first matching paper artifact set."}
-            </p>
+
+            <div className="border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
+              <div className="mono text-[10px] uppercase tracking-[0.28em] text-[var(--warning)]">
+                Latest Run
+              </div>
+              {latestRun ? (
+                <Link
+                  href={`/runs/${latestRun.run_id}`}
+                  className="mt-3 block text-sm text-[var(--text)] underline decoration-[var(--border)] underline-offset-4"
+                >
+                  {latestRun.run_id}
+                </Link>
+              ) : (
+                <div className="mt-3 text-sm text-[var(--text)]">No run detected</div>
+              )}
+              <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
+                {latestRun
+                  ? `${latestRun.mode?.toUpperCase() ?? "UNKNOWN"} · ${latestRun.product_id ?? "Unknown product"}`
+                  : "Waiting for the first matching paper artifact set."}
+              </p>
+            </div>
           </div>
         </aside>
 
@@ -206,7 +554,8 @@ export function OperatorShell() {
               </h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-[var(--muted)]">
                 This dashboard reads from the Python operator API every two seconds and surfaces
-                latest-run telemetry, recent fills, and cycle-level positioning.
+                latest-run telemetry, recent fills, cycle-level positioning, and local paper-run
+                controls.
               </p>
             </div>
             <div className="grid gap-2 text-xs uppercase tracking-[0.22em] text-[var(--muted)] sm:grid-cols-3">
@@ -216,7 +565,7 @@ export function OperatorShell() {
               </div>
               <div className="border border-[var(--border)] px-3 py-3">
                 <div className="mono text-[10px] text-[var(--accent)]">Product</div>
-                <div className="mt-2 text-sm text-[var(--text)]">{latestRun?.product_id ?? "--"}</div>
+                <div className="mt-2 text-sm text-[var(--text)]">{currentProductId}</div>
               </div>
               <div className="border border-[var(--border)] px-3 py-3">
                 <div className="mono text-[10px] text-[var(--accent)]">Updated</div>
@@ -229,7 +578,21 @@ export function OperatorShell() {
 
           {error ? <ErrorPanel message={error.message} /> : null}
           {!error && isLoading ? <LoadingPanel label="Overview" /> : null}
-          {!error && !isLoading && !latestRun ? <EmptyPanel /> : null}
+
+          {!error && !isLoading ? (
+            <PaperControlPanel
+              activeRun={activeRun.data}
+              latestRunId={latestRun?.run_id ?? null}
+              form={form}
+              onFieldChange={handleFieldChange}
+              onStart={handleStart}
+              onStop={handleStop}
+              pendingAction={pendingAction}
+              feedback={feedback}
+            />
+          ) : null}
+
+          {!error && !isLoading && !latestRun ? <EmptyPanel activeRun={activeRun.data} /> : null}
 
           {!error && !isLoading && latestRun && metrics && overviewData ? (
             <>

@@ -11,6 +11,25 @@ export type RunsListResponse = {
   count: number;
 };
 
+export type PaperRunRequest = {
+  productId: string;
+  iterations: number;
+  intervalSeconds: number;
+  startingCollateralUsdc: number;
+};
+
+export type PaperRunStatusResponse = {
+  active: boolean;
+  pid: number | null;
+  started_at: string | null;
+  run_id: string | null;
+  product_id: string | null;
+  iterations: number | null;
+  interval_seconds: number | null;
+  starting_collateral_usdc: number | null;
+  log_path: string | null;
+};
+
 export type DashboardOverviewResponse = {
   mode: "paper" | "live";
   generated_at: string;
@@ -34,12 +53,58 @@ export type ArtifactListResponse = {
 
 const API_BASE = "/api/perpfut";
 
+export class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 export async function fetchJson<T>(path: string): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     cache: "no-store",
   });
   if (!response.ok) {
-    throw new Error(`API request failed: ${response.status}`);
+    throw await buildApiError(response);
   }
   return response.json() as Promise<T>;
+}
+
+export async function postJson<T>(path: string, body?: unknown): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    cache: "no-store",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw await buildApiError(response);
+  }
+  return response.json() as Promise<T>;
+}
+
+export function startPaperRun(request: PaperRunRequest): Promise<PaperRunStatusResponse> {
+  return postJson<PaperRunStatusResponse>("/paper-runs", request);
+}
+
+export function stopPaperRun(): Promise<PaperRunStatusResponse> {
+  return postJson<PaperRunStatusResponse>("/paper-runs/stop");
+}
+
+async function buildApiError(response: Response): Promise<ApiError> {
+  let detail = `API request failed: ${response.status}`;
+  try {
+    const payload = (await response.json()) as { detail?: string };
+    if (typeof payload.detail === "string" && payload.detail) {
+      detail = payload.detail;
+    }
+  } catch {
+    // leave the fallback status message in place
+  }
+  return new ApiError(detail, response.status);
 }
