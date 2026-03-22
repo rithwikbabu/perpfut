@@ -65,7 +65,12 @@ def run_strategy_sleeve(
     config: AppConfig,
     strategy_instance: StrategyInstanceSpec,
 ) -> StrategySleeveResult:
-    run_config = build_sleeve_config(config=config, strategy_instance=strategy_instance)
+    sleeves_dir = base_runs_dir / "backtests" / "sleeves"
+    run_config = build_sleeve_config(
+        config=config,
+        strategy_instance=strategy_instance,
+        runs_dir=sleeves_dir,
+    )
     config_fingerprint = compute_strategy_instance_fingerprint(
         config=config,
         strategy_instance=strategy_instance,
@@ -82,7 +87,7 @@ def run_strategy_sleeve(
             "universe, and lookback configuration"
         )
 
-    artifact_store = ArtifactStore.create(base_runs_dir / "backtests" / "sleeves")
+    artifact_store = ArtifactStore.create(sleeves_dir)
     artifact_store.write_metadata(
         replace(
             run_config,
@@ -138,6 +143,7 @@ def build_sleeve_config(
     *,
     config: AppConfig,
     strategy_instance: StrategyInstanceSpec,
+    runs_dir: Path,
 ) -> AppConfig:
     strategy = strategy_instance.to_strategy_config(base=config.strategy)
     risk = strategy_instance.to_risk_config(base=config.risk)
@@ -146,6 +152,7 @@ def build_sleeve_config(
         mode=Mode.BACKTEST,
         product_id="MULTI_ASSET",
         interval_seconds=0,
+        runs_dir=runs_dir,
     )
     return replace(config, runtime=runtime, strategy=strategy, risk=risk)
 
