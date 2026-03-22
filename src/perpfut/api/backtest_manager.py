@@ -188,8 +188,11 @@ class BacktestJobManager:
     def _finalize_metadata(self, metadata: BacktestJobMetadata, *, exit_code: int | None) -> BacktestJobMetadata:
         finished_at = datetime.now(timezone.utc).isoformat()
         log_path = Path(metadata.log_path)
-        if exit_code == 0:
-            payload = self._load_success_payload(log_path)
+        success_payload = self._try_load_success_payload(log_path)
+        if exit_code == 0 or (exit_code is None and success_payload is not None):
+            payload = success_payload
+            if payload is None:
+                raise BacktestJobStateError("backtest job output is invalid")
             return BacktestJobMetadata(
                 job_id=metadata.job_id,
                 status="succeeded",
@@ -238,15 +241,15 @@ class BacktestJobManager:
             return True, None
         return True, None
 
-    def _load_success_payload(self, log_path: Path) -> dict[str, object]:
+    def _try_load_success_payload(self, log_path: Path) -> dict[str, object] | None:
         try:
             payload = json.loads(log_path.read_text(encoding="utf-8"))
-        except FileNotFoundError as exc:
-            raise BacktestJobStateError("backtest job log is missing") from exc
-        except (OSError, json.JSONDecodeError) as exc:
-            raise BacktestJobStateError("backtest job output is invalid") from exc
+        except FileNotFoundError:
+            return None
+        except (OSError, json.JSONDecodeError):
+            return None
         if not isinstance(payload, dict):
-            raise BacktestJobStateError("backtest job output is invalid")
+            return None
         return payload
 
     def _tail_log_message(self, log_path: Path) -> str:

@@ -138,13 +138,7 @@ def list_backtest_suite_summaries(*, limit: int = 10) -> list[BacktestSuiteSumma
 
 def load_backtest_suite_detail(suite_id: str) -> BacktestSuiteDetailResponse:
     base_dir = get_runs_dir()
-    suites = {
-        item.suite_id: item
-        for item in list_backtest_suites(base_dir, limit=1000)
-    }
-    summary = suites.get(suite_id)
-    if summary is None:
-        raise FileNotFoundError(f"backtest suite not found: {suite_id}")
+    summary = _load_backtest_suite_summary(base_dir, suite_id)
     comparison = compare_backtest_suite(base_dir, suite_id=suite_id)
     return BacktestSuiteDetailResponse(
         suite_id=summary.suite_id,
@@ -170,6 +164,36 @@ def load_backtest_suite_detail(suite_id: str) -> BacktestSuiteDetailResponse:
                 decision_counts=item.decision_counts,
             )
             for item in comparison.items
+        ],
+    )
+
+
+def _load_backtest_suite_summary(base_dir: Path, suite_id: str) -> BacktestSuiteSummaryResponse:
+    manifest_path = base_dir / "backtests" / "suites" / suite_id / "manifest.json"
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"backtest suite not found: {suite_id}")
+    try:
+        manifest = _require_document_dict(json.loads(manifest_path.read_text(encoding="utf-8")), manifest_path)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise ArtifactError(f"invalid backtest suite artifacts for: {suite_id}") from exc
+    return BacktestSuiteSummaryResponse(
+        suite_id=suite_id,
+        created_at=_coerce_str(manifest.get("created_at")),
+        dataset_id=_coerce_str(manifest.get("dataset_id")),
+        products=[
+            item
+            for item in manifest.get("products", [])
+            if isinstance(item, str)
+        ],
+        strategies=[
+            item
+            for item in manifest.get("strategies", [])
+            if isinstance(item, str)
+        ],
+        run_ids=[
+            item
+            for item in manifest.get("run_ids", [])
+            if isinstance(item, str)
         ],
     )
 

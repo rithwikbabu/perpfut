@@ -250,3 +250,17 @@ def test_start_backtest_route_maps_start_failures(monkeypatch) -> None:
 
     assert response.status_code == 500
     assert response.json()["detail"] == "backtest job exited immediately"
+
+
+def test_backtest_suite_detail_does_not_depend_on_paginated_suite_listing(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("RUNS_DIR", str(tmp_path))
+    monkeypatch.setattr("perpfut.api.routers.backtests.get_backtest_job_manager", lambda: StubBacktestManager())
+    _make_backtest_run(tmp_path, "run-2", suite_id="suite-1", strategy_id="momentum")
+    _make_backtest_suite(tmp_path, "suite-1", ["run-2"], ["momentum"])
+    monkeypatch.setattr("perpfut.api.repository.list_backtest_suites", lambda *_args, **_kwargs: [])
+    client = TestClient(create_app())
+
+    response = client.get("/api/backtest-suites/suite-1")
+
+    assert response.status_code == 200
+    assert response.json()["suite_id"] == "suite-1"
