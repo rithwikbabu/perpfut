@@ -161,8 +161,8 @@ Backtest routes are rooted at `/api`.
 and returns the dataset summary in the same response.
 
 `POST /api/backtests` launches one local background backtest job at a time and
-returns job metadata. Job status is surfaced through the `active_job` field on
-the list routes.
+returns job metadata. Job status is surfaced through the `active_job` and
+`latest_job` fields on the list routes.
 
 Example dataset build request:
 
