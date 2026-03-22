@@ -53,6 +53,29 @@ Start requests accept:
 
 The service allows only one active paper run at a time.
 
+### Dashboard Overview Shape
+
+`GET /api/dashboard/overview` now returns:
+
+- `latest_run`: newest readable run matching the requested mode
+- `latest_state`: raw latest checkpoint payload for the run
+- `latest_decision`: normalized operator-facing decision summary derived from the latest checkpoint
+- `recent_events`, `recent_fills`, `recent_positions`: newest-first artifact rows
+
+`latest_decision` contains:
+
+- `cycle_id`
+- `mode`
+- `product_id`
+- `signal`
+- `risk_decision`
+- `execution_summary`
+- `no_trade_reason`
+- `order_intent`
+- `fill`
+
+The nested decision objects use the same field names written into run artifacts.
+
 ## Design Notes
 
 - The API does not maintain in-memory trading state for the UI.
