@@ -48,12 +48,12 @@ class BacktestSuiteRunner:
 
     def run_suite(self, *, strategy_ids: Iterable[str]) -> BacktestSuiteResult:
         suite_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-        suite_dir = self.base_runs_dir / "backtests" / "suites" / suite_id
-        suite_dir.mkdir(parents=True, exist_ok=False)
+        strategy_id_list = tuple(strategy_ids)
+        for strategy_id in strategy_id_list:
+            validate_strategy_id(strategy_id)
 
         items: list[BacktestRunSummary] = []
-        for strategy_id in strategy_ids:
-            validate_strategy_id(strategy_id)
+        for strategy_id in strategy_id_list:
             strategy_config = replace(self.config.strategy, strategy_id=strategy_id)
             runtime_config = replace(
                 self.config.runtime,
@@ -67,17 +67,22 @@ class BacktestSuiteRunner:
                 runtime=runtime_config,
                 strategy=strategy_config,
             )
-            artifact_store = ArtifactStore.create(run_config.runtime.runs_dir)
             runner = SharedCapitalBacktestRunner(
                 config=run_config,
                 dataset=self.dataset,
                 products=self.products,
             )
             results = runner.run()
+            if not results:
+                raise ValueError(
+                    "backtest suite produced no executable cycles for the selected dataset, "
+                    "products, and lookback configuration"
+                )
             run_config = replace(
                 run_config,
                 runtime=replace(run_config.runtime, iterations=len(results)),
             )
+            artifact_store = ArtifactStore.create(run_config.runtime.runs_dir)
             artifact_store.write_metadata(
                 run_config,
                 extra_manifest={
@@ -102,6 +107,8 @@ class BacktestSuiteRunner:
                 )
             )
 
+        suite_dir = self.base_runs_dir / "backtests" / "suites" / suite_id
+        suite_dir.mkdir(parents=True, exist_ok=False)
         suite_manifest = {
             "suite_id": suite_id,
             "dataset_id": self.dataset.dataset_id,

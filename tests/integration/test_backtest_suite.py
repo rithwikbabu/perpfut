@@ -72,3 +72,24 @@ def test_backtest_suite_runner_persists_runs_and_suite_manifest(tmp_path, monkey
         assert (run_dir / "events.ndjson").exists()
         assert (run_dir / "fills.ndjson").exists()
         assert (run_dir / "positions.ndjson").exists()
+
+
+def test_backtest_suite_runner_rejects_empty_executable_dataset(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("LOOKBACK_CANDLES", "10")
+    config = AppConfig.from_env()
+    runner = BacktestSuiteRunner(
+        base_runs_dir=tmp_path,
+        dataset=_build_dataset(),
+        config=config,
+    )
+
+    try:
+        runner.run_suite(strategy_ids=["momentum"])
+    except ValueError as exc:
+        assert "no executable cycles" in str(exc)
+    else:
+        raise AssertionError("expected suite runner to reject empty executable datasets")
+
+    assert not (tmp_path / "backtests" / "suites").exists()
+    runs_dir = tmp_path / "backtests" / "runs"
+    assert not runs_dir.exists() or not list(runs_dir.iterdir())
