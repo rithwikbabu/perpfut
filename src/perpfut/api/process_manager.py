@@ -194,12 +194,51 @@ class PaperProcessManager:
 
     def _is_process_alive(self, pid: int) -> bool:
         try:
+            waited_pid, _status = os.waitpid(pid, os.WNOHANG)
+        except ChildProcessError:
+            waited_pid = 0
+        except OSError as exc:
+            raise PaperRunStateError("failed to inspect paper run process state") from exc
+
+        if waited_pid == pid:
+            return False
+
+        process_state = self._get_process_state(pid)
+        if process_state is not None and "Z" in process_state:
+            self._reap_process_if_possible(pid)
+            return False
+
+        try:
             os.kill(pid, 0)
         except ProcessLookupError:
             return False
         except PermissionError:
             return True
         return True
+
+    def _get_process_state(self, pid: int) -> str | None:
+        try:
+            result = subprocess.run(
+                ["ps", "-o", "stat=", "-p", str(pid)],
+                capture_output=True,
+                check=False,
+                text=True,
+            )
+        except OSError as exc:
+            raise PaperRunStateError("failed to inspect paper run process state") from exc
+
+        if result.returncode != 0:
+            return None
+        state = result.stdout.strip()
+        return state or None
+
+    def _reap_process_if_possible(self, pid: int) -> None:
+        try:
+            os.waitpid(pid, os.WNOHANG)
+        except ChildProcessError:
+            return
+        except OSError as exc:
+            raise PaperRunStateError("failed to reap paper run process") from exc
 
     def _signal_process_group(self, pid: int, sig: signal.Signals) -> None:
         try:
