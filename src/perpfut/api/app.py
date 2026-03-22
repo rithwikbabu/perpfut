@@ -14,11 +14,5 @@ def create_app() -> FastAPI:
         docs_url="/api/docs",
         openapi_url="/api/openapi.json",
     )
-
-    api = FastAPI(
-        title="perpfut operator api",
-        version="0.1.0",
-    )
-    api.include_router(health_router)
-    app.mount("/api", api)
+    app.include_router(health_router, prefix="/api")
     return app
