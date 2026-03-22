@@ -180,7 +180,13 @@ export function OperatorShell() {
             <div className="mono text-[10px] uppercase tracking-[0.28em] text-[var(--warning)]">
               Latest Run
             </div>
-            <div className="mt-3 text-sm text-[var(--text)]">{latestRun?.run_id ?? "No run detected"}</div>
+            {latestRun ? (
+              <Link href={`/runs/${latestRun.run_id}`} className="mt-3 block text-sm text-[var(--text)] underline decoration-[var(--border)] underline-offset-4">
+                {latestRun.run_id}
+              </Link>
+            ) : (
+              <div className="mt-3 text-sm text-[var(--text)]">No run detected</div>
+            )}
             <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
               {latestRun
                 ? `${latestRun.mode?.toUpperCase() ?? "UNKNOWN"} · ${latestRun.product_id ?? "Unknown product"}`
@@ -357,7 +363,11 @@ export function OperatorShell() {
                       <tbody className="mono">
                         {(runs.data?.items ?? []).map((run) => (
                           <tr key={run.run_id} className="border-t border-[var(--border)]">
-                            <td className="px-4 py-3 text-[var(--text)]">{run.run_id}</td>
+                            <td className="px-4 py-3 text-[var(--text)]">
+                              <Link href={`/runs/${run.run_id}`} className="underline decoration-[var(--border)] underline-offset-4">
+                                {run.run_id}
+                              </Link>
+                            </td>
                             <td className="px-4 py-3 text-[var(--accent)]">{run.mode ?? "--"}</td>
                             <td className="px-4 py-3 text-[var(--muted)]">{run.product_id ?? "--"}</td>
                             <td className="px-4 py-3 text-[var(--muted)]">{formatTimestamp(run.created_at)}</td>

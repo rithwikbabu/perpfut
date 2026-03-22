@@ -21,6 +21,17 @@ export type DashboardOverviewResponse = {
   recent_positions: Record<string, unknown>[];
 };
 
+export type ArtifactDocumentResponse = {
+  run_id: string;
+  data: Record<string, unknown>;
+};
+
+export type ArtifactListResponse = {
+  run_id: string;
+  items: Record<string, unknown>[];
+  count: number;
+};
+
 const API_BASE = "/api/perpfut";
 
 export async function fetchJson<T>(path: string): Promise<T> {
