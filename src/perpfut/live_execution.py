@@ -7,8 +7,22 @@ import uuid
 from typing import Protocol
 
 from .config import AppConfig
-from .domain import IntxReconciliationSnapshot, OrderIntent, OrderPreview, OrderStatusSnapshot
-from .engine import MarketDataClient, build_order_intent
+from .domain import (
+    ExecutionSummary,
+    IntxReconciliationSnapshot,
+    NoTradeReason,
+    OrderIntent,
+    OrderPreview,
+    OrderStatusSnapshot,
+    RiskDecision,
+)
+from .engine import (
+    MarketDataClient,
+    build_execution_summary,
+    build_halt_no_trade_reason,
+    build_order_plan,
+    build_risk_decision,
+)
 from .risk import clip_target_position, should_halt_for_drawdown
 from .signal_momentum import compute_signal
 from .telemetry import ArtifactStore
@@ -152,28 +166,64 @@ class LiveExecutor:
             lookback_candles=self.config.strategy.lookback_candles,
             signal_scale=self.config.strategy.signal_scale,
         )
+        raw_target_position = signal.target_position
         target_position = clip_target_position(
-            signal.target_position,
+            raw_target_position,
             max_abs_position=self.config.risk.max_abs_position,
         )
         target_notional_usdc = target_position * self.config.max_abs_notional_usdc
         delta_notional_usdc = target_notional_usdc - current_notional_usdc
+        risk_decision = build_risk_decision(
+            target_before_risk=raw_target_position,
+            target_after_risk=target_position,
+            current_position=current_position,
+            target_notional_usdc=target_notional_usdc,
+            current_notional_usdc=current_notional_usdc,
+            delta_notional_usdc=delta_notional_usdc,
+            config=self.config,
+            halted=False,
+            rebalance_eligible=False,
+        )
+        no_trade_reason: NoTradeReason | None = None
 
         if should_halt_for_drawdown(
             starting_collateral_usdc=self.config.simulation.starting_collateral_usdc,
             equity_usdc=total_balance,
             max_daily_drawdown_usdc=self.config.risk.max_daily_drawdown_usdc,
         ):
-            self._halt(cycle_id, reason="max_daily_drawdown", cancel_open_orders=True)
+            no_trade_reason = build_halt_no_trade_reason()
+            risk_decision = build_risk_decision(
+                target_before_risk=raw_target_position,
+                target_after_risk=target_position,
+                current_position=current_position,
+                target_notional_usdc=target_notional_usdc,
+                current_notional_usdc=current_notional_usdc,
+                delta_notional_usdc=delta_notional_usdc,
+                config=self.config,
+                halted=True,
+                rebalance_eligible=False,
+            )
+            execution_summary = build_execution_summary(no_trade_reason=no_trade_reason)
+            self._halt(
+                cycle_id,
+                reason="max_daily_drawdown",
+                no_trade_reason=no_trade_reason,
+                risk_decision=risk_decision,
+                execution_summary=execution_summary,
+                cancel_open_orders=True,
+            )
             self._write_live_state(
                 cycle_id,
                 exchange_state=exchange_state,
                 current_notional_usdc=current_notional_usdc,
                 current_position=current_position,
+                no_trade_reason=no_trade_reason,
+                risk_decision=risk_decision,
+                execution_summary=execution_summary,
             )
             return
 
-        order_intent = build_order_intent(
+        order_plan = build_order_plan(
             market=market,
             target_position=target_position,
             current_position=current_position,
@@ -182,7 +232,21 @@ class LiveExecutor:
             delta_notional_usdc=delta_notional_usdc,
             config=self.config,
         )
-        if order_intent is None:
+        risk_decision = build_risk_decision(
+            target_before_risk=raw_target_position,
+            target_after_risk=target_position,
+            current_position=current_position,
+            target_notional_usdc=target_notional_usdc,
+            current_notional_usdc=current_notional_usdc,
+            delta_notional_usdc=delta_notional_usdc,
+            config=self.config,
+            halted=False,
+            rebalance_eligible=order_plan.order_intent is not None,
+        )
+        no_trade_reason = order_plan.no_trade_reason
+
+        if order_plan.order_intent is None:
+            execution_summary = build_execution_summary(no_trade_reason=no_trade_reason)
             self.artifact_store.append_event(
                 "live_noop",
                 {
@@ -192,6 +256,9 @@ class LiveExecutor:
                     "product_id": product_id,
                     "target_position": target_position,
                     "current_position": current_position,
+                    "risk_decision": risk_decision,
+                    "no_trade_reason": no_trade_reason,
+                    "execution_summary": execution_summary,
                 },
             )
             self._write_live_state(
@@ -199,9 +266,13 @@ class LiveExecutor:
                 exchange_state=exchange_state,
                 current_notional_usdc=current_notional_usdc,
                 current_position=current_position,
+                no_trade_reason=no_trade_reason,
+                risk_decision=risk_decision,
+                execution_summary=execution_summary,
             )
             return
 
+        order_intent = order_plan.order_intent
         client_order_id = uuid.uuid4().hex
         preview = self.trading_client.preview_market_order(
             portfolio_uuid=self.portfolio_uuid,
@@ -219,14 +290,23 @@ class LiveExecutor:
                 "product_id": product_id,
                 "order_intent": order_intent,
                 "preview": preview,
+                "risk_decision": risk_decision,
             },
         )
         if preview.errs:
+            execution_summary = ExecutionSummary(
+                action="halted",
+                reason_code="preview_rejected",
+                reason_message="Coinbase rejected the preview request for the proposed order.",
+                summary="Trading halted because order preview rejected the candidate order.",
+            )
             self._halt(
                 cycle_id,
                 reason="preview_rejected",
                 order_intent=order_intent,
                 preview=preview,
+                risk_decision=risk_decision,
+                execution_summary=execution_summary,
                 cancel_open_orders=True,
             )
             self._write_live_state(
@@ -234,6 +314,8 @@ class LiveExecutor:
                 exchange_state=exchange_state,
                 current_notional_usdc=current_notional_usdc,
                 current_position=current_position,
+                risk_decision=risk_decision,
+                execution_summary=execution_summary,
             )
             return
 
@@ -253,14 +335,23 @@ class LiveExecutor:
                 "product_id": product_id,
                 "order_intent": order_intent,
                 "submission": submission,
+                "risk_decision": risk_decision,
             },
         )
         if not submission.success:
+            execution_summary = ExecutionSummary(
+                action="halted",
+                reason_code="submit_rejected",
+                reason_message="Coinbase rejected the live market order submission.",
+                summary="Trading halted because the live market order submission failed.",
+            )
             self._halt(
                 cycle_id,
                 reason="submit_rejected",
                 order_intent=order_intent,
                 submission=submission,
+                risk_decision=risk_decision,
+                execution_summary=execution_summary,
                 cancel_open_orders=True,
             )
             self._write_live_state(
@@ -268,11 +359,22 @@ class LiveExecutor:
                 exchange_state=exchange_state,
                 current_notional_usdc=current_notional_usdc,
                 current_position=current_position,
+                risk_decision=risk_decision,
+                execution_summary=execution_summary,
             )
             return
 
         order_status = self.trading_client.get_order(submission.order_id)
         fills = self.trading_client.list_fills(order_id=submission.order_id, limit=20)
+        if order_status.status in {"OPEN", "PENDING"}:
+            execution_summary = ExecutionSummary(
+                action="halted",
+                reason_code="open_order_after_submit",
+                reason_message="Submitted market order remained open or pending after submission.",
+                summary="Trading halted because the submitted market order did not finish immediately.",
+            )
+        else:
+            execution_summary = build_execution_summary(fill=order_status)
         self.artifact_store.append_event(
             "order_fill",
             {
@@ -282,6 +384,8 @@ class LiveExecutor:
                 "product_id": product_id,
                 "order_status": order_status,
                 "fills": fills,
+                "risk_decision": risk_decision,
+                "execution_summary": execution_summary,
             },
         )
 
@@ -296,6 +400,8 @@ class LiveExecutor:
                     "product_id": product_id,
                     "reason": "open_order_after_submit",
                     "cancel_results": cancel_results,
+                    "risk_decision": risk_decision,
+                    "execution_summary": execution_summary,
                 },
             )
 
@@ -306,6 +412,8 @@ class LiveExecutor:
             current_position=current_position,
             last_submission=submission,
             last_order_status=order_status,
+            risk_decision=risk_decision,
+            execution_summary=execution_summary,
         )
 
     def _halt(
@@ -316,6 +424,9 @@ class LiveExecutor:
         order_intent: OrderIntent | None = None,
         preview: OrderPreview | None = None,
         submission: object | None = None,
+        no_trade_reason: NoTradeReason | None = None,
+        risk_decision: RiskDecision | None = None,
+        execution_summary: ExecutionSummary | None = None,
         cancel_open_orders: bool = False,
     ) -> None:
         cancel_results = []
@@ -343,6 +454,9 @@ class LiveExecutor:
                 "order_intent": order_intent,
                 "preview": preview,
                 "submission": submission,
+                "no_trade_reason": no_trade_reason,
+                "risk_decision": risk_decision,
+                "execution_summary": execution_summary,
                 "cancel_results": cancel_results,
             },
         )
@@ -374,6 +488,9 @@ class LiveExecutor:
         current_position: float,
         last_submission: object | None = None,
         last_order_status: object | None = None,
+        no_trade_reason: NoTradeReason | None = None,
+        risk_decision: RiskDecision | None = None,
+        execution_summary: ExecutionSummary | None = None,
     ) -> None:
         self.artifact_store.write_state(
             {
@@ -385,6 +502,9 @@ class LiveExecutor:
                 "current_position": current_position,
                 "current_position_notional_usdc": current_notional_usdc,
                 "exchange_snapshot": exchange_state,
+                "no_trade_reason": no_trade_reason,
+                "risk_decision": risk_decision,
+                "execution_summary": execution_summary,
                 "last_submission": last_submission,
                 "last_order_status": last_order_status,
             }
