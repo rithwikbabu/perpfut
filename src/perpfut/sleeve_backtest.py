@@ -235,6 +235,7 @@ def _aggregate_daily_metrics(
 ) -> dict[str, Any]:
     daily_rows: dict[str, dict[str, Any]] = {}
     previous_asset_pnl = {product_id: 0.0 for product_id in universe}
+    running_peak_equity = starting_equity_usdc
     for cycle in results:
         day = _day_key(cycle.timestamp)
         row = daily_rows.setdefault(
@@ -244,9 +245,15 @@ def _aggregate_daily_metrics(
                 "turnover_usdc": 0.0,
                 "exposure_points": [],
                 "asset_pnl": {product_id: 0.0 for product_id in universe},
+                "max_drawdown_usdc": 0.0,
             },
         )
         row["end_equity"] = cycle.portfolio.equity_usdc
+        running_peak_equity = max(running_peak_equity, cycle.portfolio.equity_usdc)
+        row["max_drawdown_usdc"] = max(
+            float(row["max_drawdown_usdc"]),
+            max(running_peak_equity - cycle.portfolio.equity_usdc, 0.0),
+        )
         max_abs_notional_usdc = cycle.portfolio.equity_usdc * max_leverage
         exposure = (
             abs(cycle.portfolio.gross_notional_usdc / max_abs_notional_usdc)
@@ -263,7 +270,6 @@ def _aggregate_daily_metrics(
 
     ordered_days = sorted(daily_rows)
     previous_end_equity = starting_equity_usdc
-    peak_equity = starting_equity_usdc
     daily_returns: list[SeriesPoint] = []
     daily_turnover: list[SeriesPoint] = []
     daily_exposure: list[SeriesPoint] = []
@@ -281,7 +287,6 @@ def _aggregate_daily_metrics(
             else 0.0
         )
         previous_end_equity = end_equity
-        peak_equity = max(peak_equity, end_equity)
         avg_exposure = (
             sum(row["exposure_points"]) / len(row["exposure_points"])
             if row["exposure_points"]
@@ -290,7 +295,7 @@ def _aggregate_daily_metrics(
         daily_returns.append(SeriesPoint(label=day, value=daily_return))
         daily_turnover.append(SeriesPoint(label=day, value=float(row["turnover_usdc"])))
         daily_exposure.append(SeriesPoint(label=day, value=avg_exposure))
-        daily_drawdown.append(SeriesPoint(label=day, value=max(peak_equity - end_equity, 0.0)))
+        daily_drawdown.append(SeriesPoint(label=day, value=float(row["max_drawdown_usdc"])))
         for product_id in universe:
             asset_contribution_points[product_id].append(
                 SeriesPoint(
