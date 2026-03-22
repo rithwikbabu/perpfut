@@ -28,6 +28,7 @@ import {
   ApiError,
   fetchJson,
   launchSleeves,
+  startPortfolioRun,
   startBacktest,
   type BacktestJobStatusResponse,
   type BacktestRunRequest,
@@ -35,6 +36,7 @@ import {
   type BacktestSuiteDetailResponse,
   type BacktestSuitesListResponse,
   type DatasetsListResponse,
+  type PortfolioRunRequest,
   type PortfolioRunComparisonResponse,
   type PortfolioRunDetailResponse,
   type PortfolioRunsListResponse,
@@ -80,6 +82,17 @@ type StrategyBuilderDraft = {
   riskOverrides: Record<string, string>;
 };
 
+type OptimizerLaunchMode = "existing-sleeves" | "auto-build";
+
+type OptimizerFormState = {
+  startingCapitalUsdc: string;
+  lookbackDays: string;
+  maxStrategyWeight: string;
+  covarianceShrinkage: string;
+  ridgePenalty: string;
+  turnoverCostBps: string;
+};
+
 let nextStrategyDraftId = 1;
 
 function buildDefaultWindow() {
@@ -105,6 +118,17 @@ function buildDefaultForm(): BacktestFormState {
     maxGrossPosition: "1.0",
     maxLeverage: "2.0",
     slippageBps: "3",
+  };
+}
+
+function buildDefaultOptimizerForm(): OptimizerFormState {
+  return {
+    startingCapitalUsdc: "10000",
+    lookbackDays: "60",
+    maxStrategyWeight: "0.4",
+    covarianceShrinkage: "0.2",
+    ridgePenalty: "0.0001",
+    turnoverCostBps: "5",
   };
 }
 
@@ -467,12 +491,47 @@ function buildStrategyInstanceRequest(
   };
 }
 
+function validateOptimizerForm(form: OptimizerFormState): string[] {
+  const errors: string[] = [];
+  const lookbackDays = parseOptionalNumber(form.lookbackDays);
+  const maxStrategyWeight = parseOptionalNumber(form.maxStrategyWeight);
+  const covarianceShrinkage = parseOptionalNumber(form.covarianceShrinkage);
+  const ridgePenalty = parseOptionalNumber(form.ridgePenalty);
+  const turnoverCostBps = parseOptionalNumber(form.turnoverCostBps);
+  const startingCapitalUsdc = parseOptionalNumber(form.startingCapitalUsdc);
+
+  if (startingCapitalUsdc !== undefined && startingCapitalUsdc <= 0) {
+    errors.push("Starting capital must be greater than zero.");
+  }
+  if (lookbackDays === undefined || !Number.isInteger(lookbackDays) || lookbackDays < 1) {
+    errors.push("Lookback days must be a whole number greater than zero.");
+  }
+  if (maxStrategyWeight === undefined || maxStrategyWeight <= 0) {
+    errors.push("Max strategy weight must be greater than zero.");
+  }
+  if (covarianceShrinkage === undefined || covarianceShrinkage < 0 || covarianceShrinkage > 1) {
+    errors.push("Covariance shrinkage must be between 0 and 1.");
+  }
+  if (ridgePenalty === undefined || ridgePenalty < 0) {
+    errors.push("Ridge penalty must be zero or greater.");
+  }
+  if (turnoverCostBps === undefined || turnoverCostBps < 0) {
+    errors.push("Turnover cost must be zero or greater.");
+  }
+
+  return Array.from(new Set(errors));
+}
+
 export function BacktestsShell() {
   const [form, setForm] = useState<BacktestFormState>(buildDefaultForm);
+  const [optimizerForm, setOptimizerForm] = useState<OptimizerFormState>(buildDefaultOptimizerForm);
+  const [optimizerLaunchMode, setOptimizerLaunchMode] = useState<OptimizerLaunchMode>("existing-sleeves");
   const [builderDrafts, setBuilderDrafts] = useState<StrategyBuilderDraft[]>([]);
+  const [selectedOptimizerSleeveIds, setSelectedOptimizerSleeveIds] = useState<string[]>([]);
   const [feedback, setFeedback] = useState<ControlFeedback | null>(null);
   const [pendingLaunch, setPendingLaunch] = useState(false);
   const [pendingSleeveLaunch, setPendingSleeveLaunch] = useState(false);
+  const [pendingPortfolioLaunch, setPendingPortfolioLaunch] = useState(false);
   const [selectedSuiteId, setSelectedSuiteId] = useState<string | null>(null);
   const [selectedDatasetId, setSelectedDatasetId] = useState<string | null>(null);
   const [selectedSleeveRunId, setSelectedSleeveRunId] = useState<string | null>(null);
@@ -490,26 +549,28 @@ export function BacktestsShell() {
   const suites = useSWR<BacktestSuitesListResponse>("/backtest-suites", fetchJson, {
     refreshInterval: 2000,
   });
-  const portfolioRuns = useSWR<PortfolioRunsListResponse>(
-    selectedDatasetId ? `/portfolio-runs?datasetId=${encodeURIComponent(selectedDatasetId)}` : "/portfolio-runs",
-    fetchJson,
-    { refreshInterval: 2000 },
-  );
-  const portfolioComparison = useSWR<PortfolioRunComparisonResponse>(
-    selectedDatasetId ? `/portfolio-run-comparisons?datasetId=${encodeURIComponent(selectedDatasetId)}` : "/portfolio-run-comparisons",
-    fetchJson,
-    { refreshInterval: 2000 },
-  );
-  const sleeves = useSWR<StrategySleevesListResponse>(
-    selectedDatasetId ? `/sleeves?datasetId=${encodeURIComponent(selectedDatasetId)}` : "/sleeves",
-    fetchJson,
-    { refreshInterval: 2000 },
-  );
-  const sleeveComparison = useSWR<StrategySleeveComparisonResponse>(
-    selectedDatasetId ? `/sleeve-comparisons?datasetId=${encodeURIComponent(selectedDatasetId)}` : "/sleeve-comparisons",
-    fetchJson,
-    { refreshInterval: 2000 },
-  );
+  const portfolioRunsPath = selectedDatasetId
+    ? `/portfolio-runs?datasetId=${encodeURIComponent(selectedDatasetId)}`
+    : "/portfolio-runs";
+  const portfolioComparisonPath = selectedDatasetId
+    ? `/portfolio-run-comparisons?datasetId=${encodeURIComponent(selectedDatasetId)}`
+    : "/portfolio-run-comparisons";
+  const sleevesPath = selectedDatasetId ? `/sleeves?datasetId=${encodeURIComponent(selectedDatasetId)}` : "/sleeves";
+  const sleeveComparisonPath = selectedDatasetId
+    ? `/sleeve-comparisons?datasetId=${encodeURIComponent(selectedDatasetId)}`
+    : "/sleeve-comparisons";
+  const portfolioRuns = useSWR<PortfolioRunsListResponse>(portfolioRunsPath, fetchJson, {
+    refreshInterval: 2000,
+  });
+  const portfolioComparison = useSWR<PortfolioRunComparisonResponse>(portfolioComparisonPath, fetchJson, {
+    refreshInterval: 2000,
+  });
+  const sleeves = useSWR<StrategySleevesListResponse>(sleevesPath, fetchJson, {
+    refreshInterval: 2000,
+  });
+  const sleeveComparison = useSWR<StrategySleeveComparisonResponse>(sleeveComparisonPath, fetchJson, {
+    refreshInterval: 2000,
+  });
   const effectiveSelectedSleeveRunId =
     selectedSleeveRunId && sleeves.data?.items.some((item) => item.run_id === selectedSleeveRunId)
       ? selectedSleeveRunId
@@ -565,6 +626,7 @@ export function BacktestsShell() {
   useEffect(() => {
     setSelectedSleeveRunId(null);
     setSelectedPortfolioRunId(null);
+    setSelectedOptimizerSleeveIds([]);
   }, [selectedDatasetId]);
 
   useEffect(() => {
@@ -595,6 +657,24 @@ export function BacktestsShell() {
       setSelectedSleeveRunId(nextSleeveRunId);
     }
   }, [selectedSleeveRunId, sleeves.data]);
+
+  useEffect(() => {
+    const availableRunIds = sleeves.data?.items.map((item) => item.run_id) ?? [];
+    if (availableRunIds.length === 0) {
+      if (selectedOptimizerSleeveIds.length > 0) {
+        setSelectedOptimizerSleeveIds([]);
+      }
+      return;
+    }
+    const filtered = selectedOptimizerSleeveIds.filter((runId) => availableRunIds.includes(runId));
+    if (filtered.length === 0) {
+      setSelectedOptimizerSleeveIds(availableRunIds);
+      return;
+    }
+    if (filtered.length !== selectedOptimizerSleeveIds.length) {
+      setSelectedOptimizerSleeveIds(filtered);
+    }
+  }, [selectedOptimizerSleeveIds, sleeves.data]);
 
   useEffect(() => {
     const nextPortfolioRunId = portfolioRuns.data?.items[0]?.run_id ?? null;
@@ -741,6 +821,68 @@ export function BacktestsShell() {
     }
   }
 
+  async function handleLaunchPortfolio() {
+    if (!selectedDataset) {
+      setFeedback({ tone: "warning", message: "Select a cached dataset before launching the optimizer." });
+      return;
+    }
+    if (!strategyCatalog.data) {
+      setFeedback({ tone: "warning", message: "Strategy catalog is unavailable." });
+      return;
+    }
+    if (optimizerErrors.length > 0) {
+      setFeedback({ tone: "warning", message: optimizerErrors[0] });
+      return;
+    }
+
+    const request: PortfolioRunRequest = {
+      datasetId: selectedDataset.datasetId,
+      startingCapitalUsdc: parseOptionalNumber(optimizerForm.startingCapitalUsdc),
+      lookbackDays: parseOptionalNumber(optimizerForm.lookbackDays),
+      maxStrategyWeight: parseOptionalNumber(optimizerForm.maxStrategyWeight),
+      covarianceShrinkage: parseOptionalNumber(optimizerForm.covarianceShrinkage),
+      ridgePenalty: parseOptionalNumber(optimizerForm.ridgePenalty),
+      turnoverCostBps: parseOptionalNumber(optimizerForm.turnoverCostBps),
+    };
+
+    if (optimizerLaunchMode === "existing-sleeves") {
+      request.sleeveRunIds = selectedOptimizerSleeveIds;
+    } else {
+      const catalogById = new Map(strategyCatalog.data.items.map((item) => [item.strategyId, item]));
+      request.strategyInstances = builderDrafts.map((draft) =>
+        buildStrategyInstanceRequest(draft, catalogById.get(draft.strategyId)!),
+      );
+    }
+
+    setPendingPortfolioLaunch(true);
+    setFeedback(null);
+    try {
+      const response = await startPortfolioRun(request);
+      setSelectedPortfolioRunId(response.run_id);
+      await Promise.all([
+        sleeves.mutate(),
+        sleeveComparison.mutate(),
+        portfolioRuns.mutate(),
+        portfolioComparison.mutate(),
+      ]);
+      setFeedback({
+        tone: "success",
+        message:
+          optimizerLaunchMode === "existing-sleeves"
+            ? `Launched optimizer run ${response.run_id} from ${selectedOptimizerSleeveIds.length} sleeves.`
+            : `Launched optimizer run ${response.run_id} with auto-built sleeves.`,
+      });
+    } catch (error) {
+      setFeedback(
+        error instanceof ApiError
+          ? { tone: "danger", message: error.message }
+          : { tone: "danger", message: "Unable to launch the portfolio optimizer." },
+      );
+    } finally {
+      setPendingPortfolioLaunch(false);
+    }
+  }
+
   const activeJob =
     backtests.data?.active_job ??
     suites.data?.active_job ??
@@ -753,6 +895,15 @@ export function BacktestsShell() {
     selectedDataset,
     strategyCatalog: strategyCatalog.data,
   });
+  const optimizerFormErrors = validateOptimizerForm(optimizerForm);
+  const optimizerErrors =
+    optimizerLaunchMode === "auto-build"
+      ? [...builderErrors, ...optimizerFormErrors]
+      : [
+          ...(selectedDataset ? [] : ["Select a cached dataset before launching the optimizer."]),
+          ...(selectedOptimizerSleeveIds.length === 0 ? ["Select at least one existing sleeve."] : []),
+          ...optimizerFormErrors,
+        ];
   const hasConsoleError = backtests.error || suites.error;
 
   return (
@@ -1253,6 +1404,155 @@ export function BacktestsShell() {
                       </div>
                     );
                   })}
+                </div>
+
+                <div className="border-t border-[var(--border)] pt-4">
+                  <div className="flex flex-col gap-3 border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                      <div>
+                        <div className="mono text-[10px] uppercase tracking-[0.28em] text-[var(--accent)]">
+                          Optimizer Controls
+                        </div>
+                        <div className="mt-2 text-sm leading-6 text-[var(--muted)]">
+                          Launch a portfolio optimizer from existing sleeves or auto-build sleeves from the current builder.
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setOptimizerLaunchMode("existing-sleeves")}
+                          className={`border px-4 py-3 text-xs uppercase tracking-[0.24em] transition ${
+                            optimizerLaunchMode === "existing-sleeves"
+                              ? "border-[var(--border-strong)] bg-[rgba(84,191,255,0.08)] text-[var(--text)]"
+                              : "border-[var(--border)] text-[var(--muted)] hover:text-[var(--text)]"
+                          }`}
+                        >
+                          Use Existing Sleeves
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setOptimizerLaunchMode("auto-build")}
+                          className={`border px-4 py-3 text-xs uppercase tracking-[0.24em] transition ${
+                            optimizerLaunchMode === "auto-build"
+                              ? "border-[var(--border-strong)] bg-[rgba(84,191,255,0.08)] text-[var(--text)]"
+                              : "border-[var(--border)] text-[var(--muted)] hover:text-[var(--text)]"
+                          }`}
+                        >
+                          Auto-Build From Builder
+                        </button>
+                      </div>
+                    </div>
+
+                    {optimizerErrors.length > 0 ? (
+                      <div className="border border-[rgba(241,187,103,0.36)] bg-[rgba(241,187,103,0.08)] p-4 text-sm leading-6 text-[var(--warning)]">
+                        {optimizerErrors[0]}
+                      </div>
+                    ) : null}
+
+                    {optimizerLaunchMode === "existing-sleeves" ? (
+                      sleeves.data && sleeves.data.items.length > 0 ? (
+                        <div className="grid gap-2 md:grid-cols-2">
+                          {sleeves.data.items.map((sleeve) => {
+                            const active = selectedOptimizerSleeveIds.includes(sleeve.run_id);
+                            return (
+                              <button
+                                key={`optimizer-sleeve-${sleeve.run_id}`}
+                                type="button"
+                                onClick={() =>
+                                  setSelectedOptimizerSleeveIds((current) => toggleSelection(current, sleeve.run_id))
+                                }
+                                className={`border px-4 py-4 text-left transition ${
+                                  active
+                                    ? "border-[var(--border-strong)] bg-[rgba(84,191,255,0.08)]"
+                                    : "border-[var(--border)] bg-[var(--bg-elevated)] hover:border-[var(--border-strong)]"
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-4">
+                                  <div className="text-sm font-medium text-[var(--text)]">
+                                    {sleeve.strategy_instance_id ?? sleeve.run_id}
+                                  </div>
+                                  <div className="mono text-[10px] uppercase tracking-[0.24em] text-[var(--muted)]">
+                                    {active ? "selected" : "available"}
+                                  </div>
+                                </div>
+                                <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
+                                  {sleeve.strategy_id ?? "--"} · {formatDateRange(sleeve.date_range_start, sleeve.date_range_end)}
+                                </p>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <LoadingBlock title="No sleeves available yet. Launch sleeves first or use auto-build mode." />
+                      )
+                    ) : (
+                      <div className="border border-[var(--border)] bg-[var(--bg-elevated)] p-4 text-sm leading-6 text-[var(--muted)]">
+                        This mode will reuse the strategy builder cards above, create or reuse their sleeves, then launch
+                        a portfolio optimizer run on the resulting lineup.
+                      </div>
+                    )}
+
+                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                      <LaunchField
+                        label="Starting Capital (USDC)"
+                        type="number"
+                        step="100"
+                        value={optimizerForm.startingCapitalUsdc}
+                        onChange={(value) => setOptimizerForm((current) => ({ ...current, startingCapitalUsdc: value }))}
+                      />
+                      <LaunchField
+                        label="Lookback Days"
+                        type="number"
+                        step="1"
+                        value={optimizerForm.lookbackDays}
+                        onChange={(value) => setOptimizerForm((current) => ({ ...current, lookbackDays: value }))}
+                      />
+                      <LaunchField
+                        label="Max Strategy Weight"
+                        type="number"
+                        step="0.01"
+                        value={optimizerForm.maxStrategyWeight}
+                        onChange={(value) => setOptimizerForm((current) => ({ ...current, maxStrategyWeight: value }))}
+                      />
+                      <LaunchField
+                        label="Covariance Shrinkage"
+                        type="number"
+                        step="0.01"
+                        value={optimizerForm.covarianceShrinkage}
+                        onChange={(value) => setOptimizerForm((current) => ({ ...current, covarianceShrinkage: value }))}
+                      />
+                      <LaunchField
+                        label="Ridge Penalty"
+                        type="number"
+                        step="0.0001"
+                        value={optimizerForm.ridgePenalty}
+                        onChange={(value) => setOptimizerForm((current) => ({ ...current, ridgePenalty: value }))}
+                      />
+                      <LaunchField
+                        label="Turnover Cost (bps)"
+                        type="number"
+                        step="0.1"
+                        value={optimizerForm.turnoverCostBps}
+                        onChange={(value) => setOptimizerForm((current) => ({ ...current, turnoverCostBps: value }))}
+                      />
+                    </div>
+
+                    <div className="flex flex-col gap-3 border border-[var(--border)] bg-[var(--bg-elevated)] p-4 lg:flex-row lg:items-center lg:justify-between">
+                      <div className="text-sm leading-6 text-[var(--muted)]">
+                        {optimizerLaunchMode === "existing-sleeves"
+                          ? "Launch a portfolio run from the selected cached sleeves."
+                          : "Launch a portfolio run by auto-building or reusing sleeves from the builder configuration."}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleLaunchPortfolio}
+                        disabled={pendingPortfolioLaunch || optimizerErrors.length > 0}
+                        className="border border-[var(--border-strong)] bg-[rgba(84,191,255,0.08)] px-4 py-3 text-xs uppercase tracking-[0.24em] text-[var(--text)] transition hover:bg-[rgba(84,191,255,0.14)] disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {pendingPortfolioLaunch ? "Launching…" : "Launch Optimizer"}
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}

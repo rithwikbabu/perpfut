@@ -374,6 +374,18 @@ export type PortfolioRunComparisonResponse = {
   items: PortfolioRunComparisonItem[];
 };
 
+export type PortfolioRunRequest = {
+  datasetId: string;
+  strategyInstances?: StrategyInstanceRequest[];
+  sleeveRunIds?: string[];
+  startingCapitalUsdc?: number;
+  lookbackDays?: number;
+  maxStrategyWeight?: number;
+  covarianceShrinkage?: number;
+  ridgePenalty?: number;
+  turnoverCostBps?: number;
+};
+
 export type BacktestJobStatusResponse = {
   job_id: string;
   status: string;
@@ -533,6 +545,10 @@ export function startBacktest(request: BacktestRunRequest): Promise<BacktestJobS
 
 export function launchSleeves(request: SleeveLaunchRequest): Promise<StrategySleevesListResponse> {
   return postJson<StrategySleevesListResponse>("/sleeves", request);
+}
+
+export function startPortfolioRun(request: PortfolioRunRequest): Promise<PortfolioRunDetailResponse> {
+  return postJson<PortfolioRunDetailResponse>("/portfolio-runs", request);
 }
 
 async function buildApiError(response: Response): Promise<ApiError> {

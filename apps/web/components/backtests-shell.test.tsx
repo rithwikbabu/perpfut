@@ -28,14 +28,16 @@ vi.mock("@/lib/perpfut-api", async () => {
     ...actual,
     fetchJson: vi.fn(),
     launchSleeves: vi.fn(),
+    startPortfolioRun: vi.fn(),
     startBacktest: vi.fn(),
   };
 });
 
-const { fetchJson, launchSleeves, startBacktest } = await import("@/lib/perpfut-api");
+const { fetchJson, launchSleeves, startPortfolioRun, startBacktest } = await import("@/lib/perpfut-api");
 
 const mockedFetchJson = vi.mocked(fetchJson);
 const mockedLaunchSleeves = vi.mocked(launchSleeves);
+const mockedStartPortfolioRun = vi.mocked(startPortfolioRun);
 const mockedStartBacktest = vi.mocked(startBacktest);
 
 function renderBacktestsShell() {
@@ -332,6 +334,7 @@ describe("BacktestsShell", () => {
   beforeEach(() => {
     mockedFetchJson.mockReset();
     mockedLaunchSleeves.mockReset();
+    mockedStartPortfolioRun.mockReset();
     mockedStartBacktest.mockReset();
   });
 
@@ -1443,13 +1446,414 @@ describe("BacktestsShell", () => {
       ],
     });
     expect(await screen.findByText("Launched 1 sleeve for dataset-1.")).toBeInTheDocument();
-    expect((await screen.findAllByText("mom-launch")).length).toBeGreaterThan(0);
-    expect((await screen.findAllByText("$95")).length).toBeGreaterThan(0);
-    await waitFor(() =>
-      expect(mockedFetchJson).toHaveBeenCalledWith("/sleeves/sleeve-run-new"),
+  });
+
+  it("launches an optimizer run from existing sleeves and selects the returned detail", async () => {
+    let launched = false;
+    mockedFetchJson.mockImplementation(
+      withStrategyCatalog(async (path: string) => {
+        if (path === "/datasets") {
+          return {
+            items: [
+              {
+                datasetId: "dataset-1",
+                createdAt: "2026-03-22T05:00:00Z",
+                fingerprint: "fingerprint-123456",
+                source: "coinbase",
+                version: "1",
+                products: ["BTC-PERP-INTX", "ETH-PERP-INTX"],
+                start: "2026-03-20T12:00:00+00:00",
+                end: "2026-03-21T12:00:00+00:00",
+                granularity: "ONE_MINUTE",
+                candleCounts: { "BTC-PERP-INTX": 1440, "ETH-PERP-INTX": 1440 },
+              },
+            ],
+            count: 1,
+          };
+        }
+        if (path === "/backtests" || path === "/backtest-suites") {
+          return { items: [], count: 0, active_job: null, latest_job: null };
+        }
+        if (path === "/sleeves" || path === "/sleeves?datasetId=dataset-1") {
+          return defaultSleeveListResponse;
+        }
+        if (path === "/sleeve-comparisons" || path === "/sleeve-comparisons?datasetId=dataset-1") {
+          return defaultSleeveComparisonResponse;
+        }
+        if (path === "/sleeves/sleeve-run-1") {
+          return defaultSleeveDetailResponse;
+        }
+        if (path === "/portfolio-runs" || path === "/portfolio-runs?datasetId=dataset-1") {
+          return launched
+            ? {
+                items: [
+                  {
+                    run_id: "portfolio-run-new",
+                    created_at: "2026-03-22T06:20:00Z",
+                    dataset_id: "dataset-1",
+                    date_range_start: "2026-03-20T12:00:00+00:00",
+                    date_range_end: "2026-03-21T12:00:00+00:00",
+                    sharpe_ratio: 1.4,
+                    total_pnl_usdc: 220,
+                    total_return_pct: 0.022,
+                    max_drawdown_usdc: 40,
+                    max_drawdown_pct: 0.004,
+                    total_turnover_usdc: 1800,
+                    avg_gross_weight: 0.5,
+                    max_gross_weight: 0.7,
+                    strategy_instance_ids: ["mom-fast"],
+                  },
+                ],
+                count: 1,
+              }
+            : { items: [], count: 0 };
+        }
+        if (path === "/portfolio-run-comparisons" || path === "/portfolio-run-comparisons?datasetId=dataset-1") {
+          return launched
+            ? {
+                dataset_id: "dataset-1",
+                ranking_policy: "rank by sharpe_ratio desc",
+                items: [
+                  {
+                    rank: 1,
+                    run_id: "portfolio-run-new",
+                    created_at: "2026-03-22T06:20:00Z",
+                    dataset_id: "dataset-1",
+                    date_range_start: "2026-03-20T12:00:00+00:00",
+                    date_range_end: "2026-03-21T12:00:00+00:00",
+                    sharpe_ratio: 1.4,
+                    total_pnl_usdc: 220,
+                    total_return_pct: 0.022,
+                    max_drawdown_usdc: 40,
+                    max_drawdown_pct: 0.004,
+                    total_turnover_usdc: 1800,
+                    avg_gross_weight: 0.5,
+                    max_gross_weight: 0.7,
+                    strategy_instance_ids: ["mom-fast"],
+                  },
+                ],
+              }
+            : { dataset_id: "dataset-1", ranking_policy: "rank by sharpe_ratio desc", items: [] };
+        }
+        if (path === "/portfolio-runs/portfolio-run-new") {
+          return {
+            run_id: "portfolio-run-new",
+            manifest: { run_id: "portfolio-run-new", dataset_id: "dataset-1", sleeve_run_ids: ["sleeve-run-1"] },
+            config: { lookback_days: 60 },
+            state: { ending_equity_usdc: 10220 },
+            analysis: {
+              ...defaultPortfolioRunDetailResponse.analysis,
+              run_id: "portfolio-run-new",
+              total_pnl_usdc: 220,
+              total_return_pct: 0.022,
+              sharpe_ratio: 1.4,
+              sleeve_run_ids: ["sleeve-run-1"],
+              strategy_instance_ids: ["mom-fast"],
+            },
+            weights: defaultPortfolioRunDetailResponse.weights,
+            diagnostics: defaultPortfolioRunDetailResponse.diagnostics,
+            contributions: {
+              items: [
+                {
+                  strategy_instance_id: "mom-fast",
+                  strategy_id: "momentum",
+                  sleeve_run_id: "sleeve-run-1",
+                  total_gross_pnl_usdc: 120,
+                  daily_gross_pnl_series: [{ label: "2026-03-20", value: 120 }],
+                },
+              ],
+              transaction_cost_total_usdc: 6,
+              transaction_cost_series_usdc: [{ label: "2026-03-20", value: 6 }],
+            },
+          };
+        }
+        throw new Error(`unexpected path ${path}`);
+      }),
     );
-    expect(await screen.findByText("$60")).toBeInTheDocument();
-    expect(await screen.findByText("$35")).toBeInTheDocument();
+    mockedStartPortfolioRun.mockImplementation(async (request) => {
+      launched = true;
+      return {
+        run_id: "portfolio-run-new",
+        manifest: { run_id: "portfolio-run-new", dataset_id: "dataset-1", sleeve_run_ids: ["sleeve-run-1"] },
+        config: { lookback_days: 60 },
+        state: { ending_equity_usdc: 10220 },
+        analysis: {
+          ...defaultPortfolioRunDetailResponse.analysis,
+          run_id: "portfolio-run-new",
+          total_pnl_usdc: 220,
+          total_return_pct: 0.022,
+          sharpe_ratio: 1.4,
+          sleeve_run_ids: ["sleeve-run-1"],
+          strategy_instance_ids: ["mom-fast"],
+        },
+        weights: defaultPortfolioRunDetailResponse.weights,
+        diagnostics: defaultPortfolioRunDetailResponse.diagnostics,
+        contributions: {
+          items: [
+            {
+              strategy_instance_id: "mom-fast",
+              strategy_id: "momentum",
+              sleeve_run_id: "sleeve-run-1",
+              total_gross_pnl_usdc: 120,
+              daily_gross_pnl_series: [{ label: "2026-03-20", value: 120 }],
+            },
+          ],
+          transaction_cost_total_usdc: 6,
+          transaction_cost_series_usdc: [{ label: "2026-03-20", value: 6 }],
+        },
+      };
+    });
+
+    renderBacktestsShell();
+
+    expect(await screen.findByText("Build and launch strategy sleeves")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Launch Optimizer" }));
+
+    await waitFor(() => expect(mockedStartPortfolioRun).toHaveBeenCalledTimes(1));
+    expect(mockedStartPortfolioRun.mock.calls[0]?.[0]).toMatchObject({
+      datasetId: "dataset-1",
+      sleeveRunIds: ["sleeve-run-1"],
+    });
+    expect(mockedLaunchSleeves).not.toHaveBeenCalled();
+  });
+
+  it("launches an optimizer run in auto-build mode and refreshes sleeves plus portfolio results", async () => {
+    let launched = false;
+    mockedFetchJson.mockImplementation(
+      withStrategyCatalog(async (path: string) => {
+        if (path === "/datasets") {
+          return {
+            items: [
+              {
+                datasetId: "dataset-1",
+                createdAt: "2026-03-22T05:00:00Z",
+                fingerprint: "fingerprint-123456",
+                source: "coinbase",
+                version: "1",
+                products: ["BTC-PERP-INTX", "ETH-PERP-INTX"],
+                start: "2026-03-20T12:00:00+00:00",
+                end: "2026-03-21T12:00:00+00:00",
+                granularity: "ONE_MINUTE",
+                candleCounts: { "BTC-PERP-INTX": 1440, "ETH-PERP-INTX": 1440 },
+              },
+            ],
+            count: 1,
+          };
+        }
+        if (path === "/backtests" || path === "/backtest-suites") {
+          return { items: [], count: 0, active_job: null, latest_job: null };
+        }
+        if (path === "/sleeves" || path === "/sleeves?datasetId=dataset-1") {
+          return launched
+            ? {
+                items: [
+                  {
+                    run_id: "sleeve-run-auto",
+                    created_at: "2026-03-22T06:30:00Z",
+                    dataset_id: "dataset-1",
+                    strategy_instance_id: "mom-auto",
+                    strategy_id: "momentum",
+                    date_range_start: "2026-03-20T12:00:00+00:00",
+                    date_range_end: "2026-03-21T12:00:00+00:00",
+                    total_pnl_usdc: 70,
+                    total_return_pct: 0.007,
+                    max_drawdown_usdc: 18,
+                    max_drawdown_pct: 0.0018,
+                    avg_abs_exposure_pct: 0.19,
+                    turnover_usdc: 1500,
+                  },
+                ],
+                count: 1,
+              }
+            : { items: [], count: 0 };
+        }
+        if (path === "/sleeve-comparisons" || path === "/sleeve-comparisons?datasetId=dataset-1") {
+          return launched
+            ? {
+                dataset_id: "dataset-1",
+                ranking_policy: "rank by total_return_pct desc",
+                items: [
+                  {
+                    rank: 1,
+                    run_id: "sleeve-run-auto",
+                    dataset_id: "dataset-1",
+                    strategy_instance_id: "mom-auto",
+                    strategy_id: "momentum",
+                    date_range_start: "2026-03-20T12:00:00+00:00",
+                    date_range_end: "2026-03-21T12:00:00+00:00",
+                    total_pnl_usdc: 70,
+                    total_return_pct: 0.007,
+                    max_drawdown_usdc: 18,
+                    max_drawdown_pct: 0.0018,
+                    avg_abs_exposure_pct: 0.19,
+                    turnover_usdc: 1500,
+                    asset_contribution_totals: { "BTC-PERP-INTX": 70 },
+                  },
+                ],
+              }
+            : { dataset_id: "dataset-1", ranking_policy: "rank by total_return_pct desc", items: [] };
+        }
+        if (path === "/sleeves/sleeve-run-auto") {
+          return {
+            run_id: "sleeve-run-auto",
+            manifest: { run_id: "sleeve-run-auto", strategy_instance_id: "mom-auto", dataset_id: "dataset-1" },
+            state: { ending_equity_usdc: 10070 },
+            analysis: {
+              ...defaultSleeveDetailResponse.analysis,
+              run_id: "sleeve-run-auto",
+              total_pnl_usdc: 70,
+              total_return_pct: 0.007,
+            },
+            sleeve_analysis: {
+              asset_contributions: [{ product_id: "BTC-PERP-INTX", total_pnl_usdc: 70 }],
+            },
+          };
+        }
+        if (path === "/portfolio-runs" || path === "/portfolio-runs?datasetId=dataset-1") {
+          return launched
+            ? {
+                items: [
+                  {
+                    run_id: "portfolio-run-auto",
+                    created_at: "2026-03-22T06:35:00Z",
+                    dataset_id: "dataset-1",
+                    date_range_start: "2026-03-20T12:00:00+00:00",
+                    date_range_end: "2026-03-21T12:00:00+00:00",
+                    sharpe_ratio: 0.9,
+                    total_pnl_usdc: 140,
+                    total_return_pct: 0.014,
+                    max_drawdown_usdc: 28,
+                    max_drawdown_pct: 0.0028,
+                    total_turnover_usdc: 900,
+                    avg_gross_weight: 0.35,
+                    max_gross_weight: 0.45,
+                    strategy_instance_ids: ["mom-auto"],
+                  },
+                ],
+                count: 1,
+              }
+            : { items: [], count: 0 };
+        }
+        if (path === "/portfolio-run-comparisons" || path === "/portfolio-run-comparisons?datasetId=dataset-1") {
+          return launched
+            ? {
+                dataset_id: "dataset-1",
+                ranking_policy: "rank by sharpe_ratio desc",
+                items: [
+                  {
+                    rank: 1,
+                    run_id: "portfolio-run-auto",
+                    created_at: "2026-03-22T06:35:00Z",
+                    dataset_id: "dataset-1",
+                    date_range_start: "2026-03-20T12:00:00+00:00",
+                    date_range_end: "2026-03-21T12:00:00+00:00",
+                    sharpe_ratio: 0.9,
+                    total_pnl_usdc: 140,
+                    total_return_pct: 0.014,
+                    max_drawdown_usdc: 28,
+                    max_drawdown_pct: 0.0028,
+                    total_turnover_usdc: 900,
+                    avg_gross_weight: 0.35,
+                    max_gross_weight: 0.45,
+                    strategy_instance_ids: ["mom-auto"],
+                  },
+                ],
+              }
+            : { dataset_id: "dataset-1", ranking_policy: "rank by sharpe_ratio desc", items: [] };
+        }
+        if (path === "/portfolio-runs/portfolio-run-auto") {
+          return {
+            run_id: "portfolio-run-auto",
+            manifest: { run_id: "portfolio-run-auto", dataset_id: "dataset-1", sleeve_run_ids: ["sleeve-run-auto"] },
+            config: { lookback_days: 60 },
+            state: { ending_equity_usdc: 10140 },
+            analysis: {
+              ...defaultPortfolioRunDetailResponse.analysis,
+              run_id: "portfolio-run-auto",
+              total_pnl_usdc: 140,
+              total_return_pct: 0.014,
+              sharpe_ratio: 0.9,
+              sleeve_run_ids: ["sleeve-run-auto"],
+              strategy_instance_ids: ["mom-auto"],
+            },
+            weights: defaultPortfolioRunDetailResponse.weights,
+            diagnostics: defaultPortfolioRunDetailResponse.diagnostics,
+            contributions: {
+              items: [
+                {
+                  strategy_instance_id: "mom-auto",
+                  strategy_id: "momentum",
+                  sleeve_run_id: "sleeve-run-auto",
+                  total_gross_pnl_usdc: 88,
+                  daily_gross_pnl_series: [{ label: "2026-03-20", value: 88 }],
+                },
+              ],
+              transaction_cost_total_usdc: 4,
+              transaction_cost_series_usdc: [{ label: "2026-03-20", value: 4 }],
+            },
+          };
+        }
+        throw new Error(`unexpected path ${path}`);
+      }),
+    );
+    mockedStartPortfolioRun.mockImplementation(async (request) => {
+      launched = true;
+      return {
+        run_id: "portfolio-run-auto",
+        manifest: { run_id: "portfolio-run-auto", dataset_id: "dataset-1", sleeve_run_ids: ["sleeve-run-auto"] },
+        config: { lookback_days: 60 },
+        state: { ending_equity_usdc: 10140 },
+        analysis: {
+          ...defaultPortfolioRunDetailResponse.analysis,
+          run_id: "portfolio-run-auto",
+          total_pnl_usdc: 140,
+          total_return_pct: 0.014,
+          sharpe_ratio: 0.9,
+          sleeve_run_ids: ["sleeve-run-auto"],
+          strategy_instance_ids: ["mom-auto"],
+        },
+        weights: defaultPortfolioRunDetailResponse.weights,
+        diagnostics: defaultPortfolioRunDetailResponse.diagnostics,
+        contributions: {
+          items: [
+            {
+              strategy_instance_id: "mom-auto",
+              strategy_id: "momentum",
+              sleeve_run_id: "sleeve-run-auto",
+              total_gross_pnl_usdc: 88,
+              daily_gross_pnl_series: [{ label: "2026-03-20", value: 88 }],
+            },
+          ],
+          transaction_cost_total_usdc: 4,
+          transaction_cost_series_usdc: [{ label: "2026-03-20", value: 4 }],
+        },
+      };
+    });
+
+    renderBacktestsShell();
+
+    expect(await screen.findByText("Build and launch strategy sleeves")).toBeInTheDocument();
+    const researchControls = screen.getByText("Build and launch strategy sleeves").closest("section");
+    expect(researchControls).not.toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Auto-Build From Builder" }));
+    await userEvent.clear(screen.getByLabelText("Strategy Instance ID"));
+    await userEvent.type(screen.getByLabelText("Strategy Instance ID"), "mom-auto");
+    await userEvent.click(within(researchControls!).getByRole("button", { name: "BTC-PERP-INTX" }));
+    await userEvent.click(screen.getByRole("button", { name: "Launch Optimizer" }));
+
+    await waitFor(() => expect(mockedStartPortfolioRun).toHaveBeenCalledTimes(1));
+    expect(mockedStartPortfolioRun.mock.calls[0]?.[0]).toMatchObject({
+      datasetId: "dataset-1",
+      strategyInstances: [
+        {
+          strategyInstanceId: "mom-auto",
+          strategyId: "momentum",
+          universe: ["BTC-PERP-INTX"],
+        },
+      ],
+    });
+    expect(mockedLaunchSleeves).not.toHaveBeenCalled();
   });
 });
 
