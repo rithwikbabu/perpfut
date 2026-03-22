@@ -35,3 +35,42 @@ def test_progress_reporter_updates_both_metadata_files(tmp_path) -> None:
     assert active["completed_runs"] == 1
     assert "last_heartbeat_at" in active
     assert job["phase_message"] == "Completed strategy 1 of 2: momentum"
+
+
+def test_progress_reporter_ignores_single_path_write_failures(monkeypatch, tmp_path) -> None:
+    active_path = tmp_path / "active.json"
+    job_path = tmp_path / "job.json"
+    payload = {
+        "job_id": "job-1",
+        "status": "running",
+        "phase": "queued",
+        "created_at": "2026-03-22T00:00:00+00:00",
+        "request": {},
+        "log_path": "runs/backtests/control/job-1.log",
+    }
+    active_path.write_text(json.dumps(payload), encoding="utf-8")
+    job_path.write_text(json.dumps(payload), encoding="utf-8")
+    reporter = BacktestProgressReporter(metadata_paths=(active_path, job_path))
+    original_emit = reporter._emit_to_path
+
+    def flaky_emit(path, *, update, heartbeat):
+        if path == active_path:
+            raise OSError("disk full")
+        original_emit(path, update=update, heartbeat=heartbeat)
+
+    monkeypatch.setattr(reporter, "_emit_to_path", flaky_emit)
+
+    reporter.emit(
+        BacktestProgressUpdate(
+            phase="running_suite",
+            phase_message="Completed strategy 1 of 2: momentum",
+            total_runs=2,
+            completed_runs=1,
+        )
+    )
+
+    active = json.loads(active_path.read_text(encoding="utf-8"))
+    job = json.loads(job_path.read_text(encoding="utf-8"))
+    assert active["phase"] == "queued"
+    assert job["phase"] == "running_suite"
+    assert job["completed_runs"] == 1

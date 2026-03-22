@@ -43,21 +43,27 @@ class BacktestProgressReporter:
     def emit(self, update: BacktestProgressUpdate) -> None:
         heartbeat = datetime.now(timezone.utc).isoformat()
         for path in self.metadata_paths:
-            if not path.exists():
+            try:
+                self._emit_to_path(path, update=update, heartbeat=heartbeat)
+            except (OSError, json.JSONDecodeError, TypeError, ValueError):
                 continue
-            payload = json.loads(path.read_text(encoding="utf-8"))
-            if not isinstance(payload, dict):
-                continue
-            payload["phase"] = update.phase
-            payload["phase_message"] = update.phase_message
-            payload["last_heartbeat_at"] = heartbeat
-            if update.total_runs is not None:
-                payload["total_runs"] = update.total_runs
-            if update.completed_runs is not None:
-                payload["completed_runs"] = update.completed_runs
-            if update.error is not None:
-                payload["error"] = update.error
-            _write_json(path, payload)
+
+    def _emit_to_path(self, path: Path, *, update: BacktestProgressUpdate, heartbeat: str) -> None:
+        if not path.exists():
+            return
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            return
+        payload["phase"] = update.phase
+        payload["phase_message"] = update.phase_message
+        payload["last_heartbeat_at"] = heartbeat
+        if update.total_runs is not None:
+            payload["total_runs"] = update.total_runs
+        if update.completed_runs is not None:
+            payload["completed_runs"] = update.completed_runs
+        if update.error is not None:
+            payload["error"] = update.error
+        _write_json(path, payload)
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:

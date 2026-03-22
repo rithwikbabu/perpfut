@@ -36,15 +36,17 @@ router = APIRouter(tags=["backtests"])
 
 @router.get("/backtests", response_model=BacktestsListResponse)
 def read_backtests(limit: int = Query(default=10, ge=1, le=200)) -> BacktestsListResponse:
+    manager = get_backtest_job_manager()
     try:
-        active_job = get_backtest_job_manager().status()
+        active_job = manager.status()
+        latest_job = next(iter(manager.list_jobs(limit=1)), None)
     except BacktestJobStateError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     try:
         items = list_backtest_run_summaries(limit=limit)
     except (OSError, ValueError, FileNotFoundError) as exc:
         raise HTTPException(status_code=500, detail="invalid backtest artifacts") from exc
-    return BacktestsListResponse(items=items, count=len(items), active_job=active_job)
+    return BacktestsListResponse(items=items, count=len(items), active_job=active_job, latest_job=latest_job)
 
 
 @router.post("/backtests", response_model=BacktestJobStatusResponse, status_code=status.HTTP_202_ACCEPTED)
@@ -97,15 +99,17 @@ def read_backtest_fills(run_id: str, limit: int = Query(default=50, ge=1, le=500
 
 @router.get("/backtest-suites", response_model=BacktestSuitesListResponse)
 def read_backtest_suites(limit: int = Query(default=10, ge=1, le=200)) -> BacktestSuitesListResponse:
+    manager = get_backtest_job_manager()
     try:
-        active_job = get_backtest_job_manager().status()
+        active_job = manager.status()
+        latest_job = next(iter(manager.list_jobs(limit=1)), None)
     except BacktestJobStateError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     try:
         items = list_backtest_suite_summaries(limit=limit)
     except (OSError, ValueError, FileNotFoundError) as exc:
         raise HTTPException(status_code=500, detail="invalid backtest suite artifacts") from exc
-    return BacktestSuitesListResponse(items=items, count=len(items), active_job=active_job)
+    return BacktestSuitesListResponse(items=items, count=len(items), active_job=active_job, latest_job=latest_job)
 
 
 @router.get("/backtest-suites/{suite_id}", response_model=BacktestSuiteDetailResponse)

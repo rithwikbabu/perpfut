@@ -214,6 +214,7 @@ class BacktestsListResponse(BaseModel):
     items: list[BacktestRunSummaryResponse]
     count: int
     active_job: BacktestJobStatusResponse | None = None
+    latest_job: BacktestJobStatusResponse | None = None
 
 
 class BacktestRunDetailResponse(BaseModel):
@@ -236,6 +237,7 @@ class BacktestSuitesListResponse(BaseModel):
     items: list[BacktestSuiteSummaryResponse]
     count: int
     active_job: BacktestJobStatusResponse | None = None
+    latest_job: BacktestJobStatusResponse | None = None
 
 
 class BacktestSuiteComparisonItemResponse(BaseModel):
