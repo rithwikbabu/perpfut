@@ -104,13 +104,31 @@ def test_synthesize_aligned_snapshots_uses_common_timestamps_and_lookback(tmp_pa
 
     frames = synthesize_aligned_snapshots(dataset, lookback_candles=3)
 
-    assert [frame.timestamp for frame in frames] == [
-        anchor + timedelta(minutes=3),
-        anchor + timedelta(minutes=4),
-        anchor + timedelta(minutes=5),
-    ]
+    assert [frame.timestamp for frame in frames] == [anchor + timedelta(minutes=5)]
     for frame in frames:
         assert set(frame.snapshots) == {"BTC-PERP-INTX", "ETH-PERP-INTX"}
         assert len(frame.snapshots["BTC-PERP-INTX"].candles) == 3
         assert len(frame.snapshots["ETH-PERP-INTX"].candles) == 3
         assert frame.snapshots["BTC-PERP-INTX"].as_of == frame.timestamp
+
+
+def test_historical_dataset_builder_rejects_products_without_candles(tmp_path) -> None:
+    anchor = datetime(2026, 3, 20, 0, 0, tzinfo=timezone.utc)
+    client = FakeHistoricalClient(
+        {
+            "BTC-PERP-INTX": _build_candles(anchor=anchor, count=5, base_price=100.0),
+            "ETH-PERP-INTX": [],
+        }
+    )
+    builder = HistoricalDatasetBuilder(client=client, base_runs_dir=tmp_path)
+
+    try:
+        builder.build_dataset(
+            products=["BTC-PERP-INTX", "ETH-PERP-INTX"],
+            start=anchor,
+            end=anchor + timedelta(minutes=5),
+        )
+    except ValueError as exc:
+        assert "no candles for product 'ETH-PERP-INTX'" in str(exc)
+    else:
+        raise AssertionError("expected builder to reject empty-product datasets")

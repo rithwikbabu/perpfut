@@ -10,6 +10,10 @@ from typing import Protocol
 
 from .domain import Candle, MarketSnapshot
 
+GRANULARITY_SECONDS = {
+    "ONE_MINUTE": 60,
+}
+
 
 @dataclass(frozen=True, slots=True)
 class HistoricalDataset:
@@ -70,6 +74,11 @@ class HistoricalDatasetBuilder:
                     granularity=granularity,
                 )
             )
+            if not candles:
+                raise ValueError(
+                    f"historical dataset contains no candles for product '{product_id}' "
+                    f"between {start.isoformat()} and {end.isoformat()}"
+                )
             candles_by_product[product_id] = candles
 
         dataset = HistoricalDataset(
@@ -152,16 +161,24 @@ def synthesize_aligned_snapshots(
     if not common_timestamps:
         return ()
 
+    granularity_seconds = GRANULARITY_SECONDS.get(dataset.granularity)
+    if granularity_seconds is None:
+        raise ValueError(f"unsupported dataset granularity: {dataset.granularity}")
+    expected_gap_seconds = granularity_seconds
+    ordered_common_timestamps = sorted(common_timestamps)
     frames: list[AlignedSnapshotFrame] = []
-    for timestamp in sorted(common_timestamps):
+    for end_index in range(lookback_candles - 1, len(ordered_common_timestamps)):
+        selected_timestamps = ordered_common_timestamps[end_index + 1 - lookback_candles : end_index + 1]
+        if any(
+            (next_timestamp - current_timestamp).total_seconds() != expected_gap_seconds
+            for current_timestamp, next_timestamp in zip(selected_timestamps, selected_timestamps[1:])
+        ):
+            continue
+        timestamp = selected_timestamps[-1]
         snapshots: dict[str, MarketSnapshot] = {}
         for product_id, candles in dataset.candles_by_product.items():
-            index = timestamp_indexes[product_id][timestamp]
-            if index + 1 < lookback_candles:
-                snapshots = {}
-                break
-            window = candles[index + 1 - lookback_candles : index + 1]
-            current = candles[index]
+            window = tuple(candles[timestamp_indexes[product_id][item]] for item in selected_timestamps)
+            current = window[-1]
             snapshots[product_id] = MarketSnapshot(
                 product_id=product_id,
                 as_of=current.start,
