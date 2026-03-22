@@ -204,3 +204,37 @@ def test_compute_dataset_fingerprint_is_order_insensitive() -> None:
     )
 
     assert first == second
+
+
+def test_historical_dataset_builder_recovers_from_stale_registry_entry(tmp_path) -> None:
+    anchor = datetime(2026, 3, 20, 0, 0, tzinfo=timezone.utc)
+    client = FakeHistoricalClient(
+        {
+            "BTC-PERP-INTX": _build_candles(anchor=anchor, count=5, base_price=100.0),
+        }
+    )
+    builder = HistoricalDatasetBuilder(client=client, base_runs_dir=tmp_path)
+    fingerprint = compute_dataset_fingerprint(
+        products=["BTC-PERP-INTX"],
+        start=anchor,
+        end=anchor + timedelta(minutes=5),
+        granularity="ONE_MINUTE",
+    )
+    registry_path = tmp_path / "backtests" / "datasets" / "registry.json"
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
+    registry_path.write_text(
+        json.dumps({fingerprint: "missing-dataset"}, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    dataset = builder.build_dataset(
+        products=["BTC-PERP-INTX"],
+        start=anchor,
+        end=anchor + timedelta(minutes=5),
+    )
+
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    assert registry[fingerprint] == dataset.dataset_id
+    assert client.calls == [
+        ("BTC-PERP-INTX", anchor, anchor + timedelta(minutes=5), "ONE_MINUTE"),
+    ]

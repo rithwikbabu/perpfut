@@ -85,9 +85,14 @@ class HistoricalDatasetBuilder:
             end=end,
             granularity=granularity,
         )
-        cached_dataset_id = self._load_registry().get(fingerprint)
+        registry = self._load_registry()
+        cached_dataset_id = registry.get(fingerprint)
         if cached_dataset_id is not None:
-            return self.load_dataset(cached_dataset_id)
+            try:
+                return self.load_dataset(cached_dataset_id)
+            except FileNotFoundError:
+                registry.pop(fingerprint, None)
+                self._write_registry(registry)
 
         created_at = datetime.now(timezone.utc)
         dataset_id = created_at.strftime("%Y%m%dT%H%M%S%fZ")
