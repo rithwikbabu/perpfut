@@ -1,7 +1,76 @@
+"use client";
+
 import Link from "next/link";
+import { startTransition, useEffect, useState } from "react";
+import useSWR from "swr";
 
 import { ConsoleNav } from "@/components/console-nav";
+import {
+  formatCount,
+  formatMoney,
+  formatPercent,
+  formatSignedPercent,
+  formatTimestamp,
+} from "@/lib/dashboard-metrics";
+import {
+  ApiError,
+  fetchJson,
+  startBacktest,
+  type BacktestJobStatusResponse,
+  type BacktestRunRequest,
+  type BacktestsListResponse,
+  type BacktestSuiteDetailResponse,
+  type BacktestSuitesListResponse,
+} from "@/lib/perpfut-api";
 
+
+const PRODUCT_OPTIONS = ["BTC-PERP-INTX", "ETH-PERP-INTX", "SOL-PERP-INTX"] as const;
+const STRATEGY_OPTIONS = ["momentum", "mean_reversion"] as const;
+
+type ControlFeedback = {
+  tone: "success" | "danger" | "warning";
+  message: string;
+};
+
+type BacktestFormState = {
+  productIds: string[];
+  strategyIds: string[];
+  start: string;
+  end: string;
+  startingCollateralUsdc: string;
+  lookbackCandles: string;
+  signalScale: string;
+  maxAbsPosition: string;
+  maxGrossPosition: string;
+  maxLeverage: string;
+  slippageBps: string;
+};
+
+function buildDefaultWindow() {
+  const end = new Date();
+  const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
+  return {
+    start: formatLocalDateTimeInput(start),
+    end: formatLocalDateTimeInput(end),
+  };
+}
+
+function buildDefaultForm(): BacktestFormState {
+  const window = buildDefaultWindow();
+  return {
+    productIds: ["BTC-PERP-INTX", "ETH-PERP-INTX"],
+    strategyIds: ["momentum", "mean_reversion"],
+    start: window.start,
+    end: window.end,
+    startingCollateralUsdc: "10000",
+    lookbackCandles: "20",
+    signalScale: "12",
+    maxAbsPosition: "0.5",
+    maxGrossPosition: "1.0",
+    maxLeverage: "2.0",
+    slippageBps: "3",
+  };
+}
 
 function ShellPanel({
   children,
@@ -33,7 +102,230 @@ function ShellHeader({
   );
 }
 
+function MetricChip({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="border border-[var(--border)] bg-[var(--bg-elevated)] px-4 py-4">
+      <div className="mono text-[10px] uppercase tracking-[0.24em] text-[var(--muted)]">{label}</div>
+      <div className="mt-3 text-sm text-[var(--text)]">{value}</div>
+    </div>
+  );
+}
+
+function LoadingBlock({ title }: { title: string }) {
+  return (
+    <div className="grid min-h-52 place-items-center border border-[var(--border)] bg-[var(--bg-elevated)] text-sm text-[var(--muted)]">
+      {title}
+    </div>
+  );
+}
+
+function ErrorBlock({ message }: { message: string }) {
+  return (
+    <div className="border border-[rgba(255,109,123,0.38)] bg-[rgba(255,109,123,0.08)] p-4 text-sm leading-6 text-[var(--danger)]">
+      {message}
+    </div>
+  );
+}
+
+function formatControlError(error: unknown): ControlFeedback {
+  if (error instanceof ApiError) {
+    return {
+      tone: error.status === 409 ? "warning" : "danger",
+      message: error.message,
+    };
+  }
+  return {
+    tone: "danger",
+    message: "Unable to start the backtest suite.",
+  };
+}
+
+function toggleSelection(items: string[], value: string): string[] {
+  return items.includes(value) ? items.filter((item) => item !== value) : [...items, value];
+}
+
+function formatLocalDateTimeInput(value: Date): string {
+  const offsetMs = value.getTimezoneOffset() * 60 * 1000;
+  return new Date(value.getTime() - offsetMs).toISOString().slice(0, 16);
+}
+
+function toIsoUtc(value: string): string | null {
+  if (!value.trim()) {
+    return null;
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  return parsed.toISOString();
+}
+
+function parseOptionalNumber(value: string): number | undefined {
+  if (!value.trim()) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function LaunchField({
+  label,
+  value,
+  onChange,
+  type = "text",
+  step,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: string;
+  step?: string;
+}) {
+  return (
+    <label className="block">
+      <span className="mono text-[10px] uppercase tracking-[0.24em] text-[var(--muted)]">{label}</span>
+      <input
+        className="mt-3 w-full border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-3 text-sm text-[var(--text)] outline-none transition focus:border-[var(--border-strong)]"
+        type={type}
+        step={step}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </label>
+  );
+}
+
+function MultiSelectGrid({
+  label,
+  options,
+  selected,
+  onToggle,
+}: {
+  label: string;
+  options: readonly string[];
+  selected: string[];
+  onToggle: (value: string) => void;
+}) {
+  return (
+    <div>
+      <div className="mono text-[10px] uppercase tracking-[0.24em] text-[var(--muted)]">{label}</div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        {options.map((option) => {
+          const active = selected.includes(option);
+          return (
+            <button
+              key={option}
+              type="button"
+              onClick={() => onToggle(option)}
+              className={`border px-3 py-3 text-left text-sm transition ${
+                active
+                  ? "border-[var(--border-strong)] bg-[rgba(84,191,255,0.08)] text-[var(--text)]"
+                  : "border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--muted)] hover:text-[var(--text)]"
+              }`}
+            >
+              {option}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function BacktestsShell() {
+  const [form, setForm] = useState<BacktestFormState>(buildDefaultForm);
+  const [feedback, setFeedback] = useState<ControlFeedback | null>(null);
+  const [pendingLaunch, setPendingLaunch] = useState(false);
+  const [selectedSuiteId, setSelectedSuiteId] = useState<string | null>(null);
+
+  const backtests = useSWR<BacktestsListResponse>("/backtests", fetchJson, {
+    refreshInterval: 2000,
+  });
+  const suites = useSWR<BacktestSuitesListResponse>("/backtest-suites", fetchJson, {
+    refreshInterval: 2000,
+  });
+  const selectedSuite = useSWR<BacktestSuiteDetailResponse>(
+    selectedSuiteId ? `/backtest-suites/${selectedSuiteId}` : null,
+    fetchJson,
+    {
+      refreshInterval: 2000,
+    }
+  );
+
+  useEffect(() => {
+    const nextSuiteId = suites.data?.items[0]?.suite_id ?? null;
+    if (!selectedSuiteId && nextSuiteId) {
+      setSelectedSuiteId(nextSuiteId);
+      return;
+    }
+    if (selectedSuiteId && suites.data && !suites.data.items.some((item) => item.suite_id === selectedSuiteId)) {
+      setSelectedSuiteId(nextSuiteId);
+    }
+  }, [selectedSuiteId, suites.data]);
+
+  async function refreshBacktests() {
+    await Promise.all([backtests.mutate(), suites.mutate(), selectedSuite.mutate()]);
+  }
+
+  async function handleLaunch(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (form.productIds.length === 0) {
+      setFeedback({ tone: "warning", message: "Select at least one product." });
+      return;
+    }
+    if (form.strategyIds.length === 0) {
+      setFeedback({ tone: "warning", message: "Select at least one strategy." });
+      return;
+    }
+    const startIso = toIsoUtc(form.start);
+    const endIso = toIsoUtc(form.end);
+    if (!startIso || !endIso) {
+      setFeedback({ tone: "warning", message: "Provide both start and end datetimes." });
+      return;
+    }
+
+    const request: BacktestRunRequest = {
+      productIds: form.productIds,
+      strategyIds: form.strategyIds,
+      start: startIso,
+      end: endIso,
+      granularity: "ONE_MINUTE",
+      startingCollateralUsdc: parseOptionalNumber(form.startingCollateralUsdc),
+      lookbackCandles: parseOptionalNumber(form.lookbackCandles),
+      signalScale: parseOptionalNumber(form.signalScale),
+      maxAbsPosition: parseOptionalNumber(form.maxAbsPosition),
+      maxGrossPosition: parseOptionalNumber(form.maxGrossPosition),
+      maxLeverage: parseOptionalNumber(form.maxLeverage),
+      slippageBps: parseOptionalNumber(form.slippageBps),
+    };
+
+    setPendingLaunch(true);
+    setFeedback(null);
+    try {
+      const job = await startBacktest(request);
+      setFeedback({
+        tone: "success",
+        message: `Backtest job ${job.job_id} started for ${job.request.strategyIds.join(", ")}.`,
+      });
+      await refreshBacktests();
+    } catch (error) {
+      setFeedback(formatControlError(error));
+      await refreshBacktests();
+    } finally {
+      setPendingLaunch(false);
+    }
+  }
+
+  const activeJob = backtests.data?.active_job ?? suites.data?.active_job ?? null;
+  const latestSuite = suites.data?.items[0] ?? null;
+  const hasConsoleError = backtests.error || suites.error;
+
   return (
     <main className="min-h-screen px-4 py-4 text-[var(--text)] sm:px-6 lg:px-8">
       <div className="mx-auto grid max-w-[1680px] gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
@@ -51,24 +343,34 @@ export function BacktestsShell() {
           <div className="space-y-4">
             <div className="border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
               <div className="mono text-[10px] uppercase tracking-[0.28em] text-[var(--warning)]">
-                Runtime Contract
+                Active Job
               </div>
-              <div className="mt-3 text-sm text-[var(--text)]">Bar-close signals, next-open fills</div>
+              <div className="mt-3 text-sm text-[var(--text)]">
+                {activeJob ? `${activeJob.status.toUpperCase()} · ${activeJob.job_id}` : "No active backtest job"}
+              </div>
               <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
-                Backtests reuse the same strategy registry as paper and live execution. Multi-asset allocation
-                exists only inside the backtest runner.
+                {activeJob
+                  ? `${activeJob.request.productIds.join(", ")} · ${activeJob.request.strategyIds.join(", ")}`
+                  : "Launch a suite to populate the shared historical backtest queue."}
               </p>
             </div>
 
             <div className="border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
               <div className="mono text-[10px] uppercase tracking-[0.28em] text-[var(--warning)]">
-                Console Scope
+                Latest Suite
               </div>
-              <div className="mt-3 text-sm text-[var(--text)]">Launch, rank, inspect</div>
-              <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
-                This shell is permanent navigation scaffolding. The launch form, suite leaderboard, and run
-                detail data wiring land in the next backtest frontend PRs.
-              </p>
+              {latestSuite ? (
+                <>
+                  <div className="mt-3 text-sm text-[var(--text)]">{latestSuite.suite_id}</div>
+                  <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
+                    {latestSuite.strategies.join(", ")} · {latestSuite.products.join(", ")}
+                  </p>
+                </>
+              ) : (
+                <p className="mt-3 text-sm leading-6 text-[var(--muted)]">
+                  No completed backtest suites yet.
+                </p>
+              )}
             </div>
           </div>
         </aside>
@@ -80,11 +382,11 @@ export function BacktestsShell() {
                 Historical Console
               </div>
               <h1 className="mt-3 max-w-3xl text-3xl font-semibold tracking-tight">
-                Historical backtests with reusable production strategy code.
+                Launch and rank historical strategy suites.
               </h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-[var(--muted)]">
-                Use this area to launch multi-asset backtest suites, compare strategy candidates on the
-                canonical metrics contract, and drill into portfolio decisions without leaving the operator UI.
+                This console launches local backtest jobs, lists completed backtest runs, and ranks strategy
+                suites on the same canonical metrics contract used elsewhere in the repo.
               </p>
             </div>
             <div className="grid gap-2 text-xs uppercase tracking-[0.22em] text-[var(--muted)] sm:grid-cols-3">
@@ -97,41 +399,310 @@ export function BacktestsShell() {
                 <div className="mt-2 text-sm text-[var(--text)]">Next Open</div>
               </div>
               <div className="border border-[var(--border)] px-3 py-3">
-                <div className="mono text-[10px] text-[var(--accent)]">Artifacts</div>
-                <div className="mt-2 text-sm text-[var(--text)]">runs/backtests</div>
+                <div className="mono text-[10px] text-[var(--accent)]">Queue</div>
+                <div className="mt-2 text-sm text-[var(--text)]">{activeJob ? "1 active" : "idle"}</div>
               </div>
             </div>
           </header>
 
-          <div className="grid gap-4 xl:grid-cols-[1.3fr_0.9fr]">
+          {hasConsoleError ? (
             <ShellPanel className="p-5">
-              <ShellHeader eyebrow="Launch Surface" title="Backtest suite controls arrive next" action="BT-9" />
-              <div className="signal-grid grid min-h-80 place-items-center border border-[var(--border)] bg-[var(--bg-elevated)] p-8 text-center">
-                <div>
-                  <div className="text-base font-medium text-[var(--text)]">Launch, list, and compare live here next.</div>
-                  <p className="mt-3 max-w-xl text-sm leading-6 text-[var(--muted)]">
-                    The next frontend step wires the launch form to <span className="mono">POST /api/backtests</span> and
-                    renders suite rankings from <span className="mono">/api/backtest-suites</span>.
-                  </p>
-                </div>
+              <ShellHeader eyebrow="Connection" title="Backtest API unavailable" />
+              <ErrorBlock message={(backtests.error ?? suites.error ?? new Error("unknown")).message} />
+            </ShellPanel>
+          ) : null}
+
+          {feedback ? (
+            <ShellPanel className="p-5">
+              <div
+                className={`border p-4 text-sm leading-6 ${
+                  feedback.tone === "success"
+                    ? "border-[rgba(143,214,255,0.36)] bg-[rgba(143,214,255,0.08)] text-[var(--accent)]"
+                    : feedback.tone === "warning"
+                      ? "border-[rgba(241,187,103,0.36)] bg-[rgba(241,187,103,0.08)] text-[var(--warning)]"
+                      : "border-[rgba(255,109,123,0.38)] bg-[rgba(255,109,123,0.08)] text-[var(--danger)]"
+                }`}
+              >
+                {feedback.message}
               </div>
+            </ShellPanel>
+          ) : null}
+
+          <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+            <ShellPanel className="p-5">
+              <ShellHeader eyebrow="Launch" title="Start a backtest suite" action="POST /api/backtests" />
+              <form className="space-y-5" onSubmit={handleLaunch}>
+                <MultiSelectGrid
+                  label="Products"
+                  options={PRODUCT_OPTIONS}
+                  selected={form.productIds}
+                  onToggle={(value) => setForm((current) => ({ ...current, productIds: toggleSelection(current.productIds, value) }))}
+                />
+                <MultiSelectGrid
+                  label="Strategies"
+                  options={STRATEGY_OPTIONS}
+                  selected={form.strategyIds}
+                  onToggle={(value) =>
+                    setForm((current) => ({ ...current, strategyIds: toggleSelection(current.strategyIds, value) }))
+                  }
+                />
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <LaunchField
+                    label="Start"
+                    type="datetime-local"
+                    value={form.start}
+                    onChange={(value) => setForm((current) => ({ ...current, start: value }))}
+                  />
+                  <LaunchField
+                    label="End"
+                    type="datetime-local"
+                    value={form.end}
+                    onChange={(value) => setForm((current) => ({ ...current, end: value }))}
+                  />
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  <LaunchField
+                    label="Starting Capital"
+                    type="number"
+                    step="100"
+                    value={form.startingCollateralUsdc}
+                    onChange={(value) => setForm((current) => ({ ...current, startingCollateralUsdc: value }))}
+                  />
+                  <LaunchField
+                    label="Lookback Candles"
+                    type="number"
+                    step="1"
+                    value={form.lookbackCandles}
+                    onChange={(value) => setForm((current) => ({ ...current, lookbackCandles: value }))}
+                  />
+                  <LaunchField
+                    label="Signal Scale"
+                    type="number"
+                    step="0.1"
+                    value={form.signalScale}
+                    onChange={(value) => setForm((current) => ({ ...current, signalScale: value }))}
+                  />
+                  <LaunchField
+                    label="Max Abs Position"
+                    type="number"
+                    step="0.05"
+                    value={form.maxAbsPosition}
+                    onChange={(value) => setForm((current) => ({ ...current, maxAbsPosition: value }))}
+                  />
+                  <LaunchField
+                    label="Max Gross Position"
+                    type="number"
+                    step="0.05"
+                    value={form.maxGrossPosition}
+                    onChange={(value) => setForm((current) => ({ ...current, maxGrossPosition: value }))}
+                  />
+                  <LaunchField
+                    label="Max Leverage"
+                    type="number"
+                    step="0.1"
+                    value={form.maxLeverage}
+                    onChange={(value) => setForm((current) => ({ ...current, maxLeverage: value }))}
+                  />
+                  <LaunchField
+                    label="Slippage Bps"
+                    type="number"
+                    step="0.1"
+                    value={form.slippageBps}
+                    onChange={(value) => setForm((current) => ({ ...current, slippageBps: value }))}
+                  />
+                </div>
+
+                <div className="flex flex-col gap-3 border border-[var(--border)] bg-[var(--bg-elevated)] p-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="text-sm leading-6 text-[var(--muted)]">
+                    Granularity is fixed to <span className="mono text-[var(--text)]">ONE_MINUTE</span> in the
+                    current backtest engine.
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={pendingLaunch}
+                    className="border border-[var(--border-strong)] bg-[rgba(84,191,255,0.08)] px-4 py-3 text-xs uppercase tracking-[0.24em] text-[var(--text)] transition hover:bg-[rgba(84,191,255,0.14)] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {pendingLaunch ? "Launching…" : "Launch Backtest Suite"}
+                  </button>
+                </div>
+              </form>
             </ShellPanel>
 
             <ShellPanel className="p-5">
-              <ShellHeader eyebrow="Routes" title="Backtest drill-down is now addressable" />
-              <div className="space-y-3 text-sm leading-6 text-[var(--muted)]">
-                <div className="border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
-                  Overview route: <Link href="/backtests" className="text-[var(--accent)] underline decoration-[var(--border)] underline-offset-4">/backtests</Link>
+              <ShellHeader eyebrow="Job Status" title="Backtest queue" action="POLL 2S" />
+              {activeJob ? (
+                <div className="space-y-4">
+                  <div className="border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
+                    <div className="mono text-[10px] uppercase tracking-[0.24em] text-[var(--accent)]">
+                      {activeJob.status}
+                    </div>
+                    <div className="mt-3 text-base font-medium text-[var(--text)]">{activeJob.job_id}</div>
+                    <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
+                      {activeJob.request.productIds.join(", ")} · {activeJob.request.strategyIds.join(", ")}
+                    </p>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <MetricChip label="Created" value={formatTimestamp(activeJob.created_at)} />
+                    <MetricChip
+                      label="Finished"
+                      value={activeJob.finished_at ? formatTimestamp(activeJob.finished_at) : "running"}
+                    />
+                    <MetricChip
+                      label="Suite"
+                      value={activeJob.suite_id ?? "pending"}
+                    />
+                    <MetricChip
+                      label="Run Count"
+                      value={formatCount(activeJob.run_ids.length)}
+                    />
+                  </div>
+                  {activeJob.error ? <ErrorBlock message={activeJob.error} /> : null}
                 </div>
-                <div className="border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
-                  Run detail route: <Link href="/backtests/demo-run" className="text-[var(--accent)] underline decoration-[var(--border)] underline-offset-4">/backtests/[runId]</Link>
-                </div>
-                <div className="border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
-                  Existing live operator dashboard remains at <Link href="/" className="text-[var(--accent)] underline decoration-[var(--border)] underline-offset-4">/</Link>.
-                </div>
-              </div>
+              ) : (
+                <LoadingBlock title="No active backtest job. Launch a suite to populate this queue." />
+              )}
             </ShellPanel>
           </div>
+
+          <div className="grid gap-4 xl:grid-cols-[0.92fr_1.08fr]">
+            <ShellPanel className="p-5">
+              <ShellHeader
+                eyebrow="Suites"
+                title="Completed suite manifests"
+                action={`${suites.data?.count ?? 0} loaded`}
+              />
+              {suites.isLoading ? (
+                <LoadingBlock title="Loading completed backtest suites." />
+              ) : suites.data && suites.data.items.length > 0 ? (
+                <div className="space-y-3">
+                  {suites.data.items.map((suite) => (
+                    <button
+                      key={suite.suite_id}
+                      type="button"
+                      onClick={() => startTransition(() => setSelectedSuiteId(suite.suite_id))}
+                      className={`w-full border px-4 py-4 text-left transition ${
+                        suite.suite_id === selectedSuiteId
+                          ? "border-[var(--border-strong)] bg-[rgba(84,191,255,0.08)]"
+                          : "border-[var(--border)] bg-[var(--bg-elevated)] hover:border-[var(--border-strong)]"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="text-sm font-medium text-[var(--text)]">{suite.suite_id}</div>
+                        <div className="mono text-[10px] uppercase tracking-[0.24em] text-[var(--muted)]">
+                          {formatTimestamp(suite.created_at)}
+                        </div>
+                      </div>
+                      <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
+                        {suite.strategies.join(", ")} · {suite.products.join(", ")}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <LoadingBlock title="No completed backtest suites yet." />
+              )}
+            </ShellPanel>
+
+            <ShellPanel className="p-5">
+              <ShellHeader
+                eyebrow="Leaderboard"
+                title="Selected suite ranking"
+                action={selectedSuite.data?.ranking_policy ?? "awaiting suite"}
+              />
+              {selectedSuite.isLoading ? (
+                <LoadingBlock title="Loading suite ranking." />
+              ) : selectedSuite.error ? (
+                <ErrorBlock message={selectedSuite.error.message} />
+              ) : selectedSuite.data ? (
+                <div className="overflow-x-auto border border-[var(--border)] bg-[var(--bg-elevated)]">
+                  <table className="min-w-full text-left text-sm">
+                    <thead className="border-b border-[var(--border)] text-[var(--muted)]">
+                      <tr>
+                        <th className="px-4 py-3 font-medium">Rank</th>
+                        <th className="px-4 py-3 font-medium">Strategy</th>
+                        <th className="px-4 py-3 font-medium">Return</th>
+                        <th className="px-4 py-3 font-medium">P&amp;L</th>
+                        <th className="px-4 py-3 font-medium">Drawdown</th>
+                        <th className="px-4 py-3 font-medium">Turns</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedSuite.data.items.map((item) => (
+                        <tr key={item.run_id} className="border-b border-[var(--border)] last:border-b-0">
+                          <td className="px-4 py-3 text-[var(--text)]">{item.rank}</td>
+                          <td className="px-4 py-3 text-[var(--text)]">
+                            <Link
+                              href={`/backtests/${item.run_id}`}
+                              className="underline decoration-[var(--border)] underline-offset-4"
+                            >
+                              {item.strategy_id ?? item.run_id}
+                            </Link>
+                          </td>
+                          <td className="px-4 py-3 text-[var(--accent)]">{formatSignedPercent(item.total_return_pct)}</td>
+                          <td className="px-4 py-3 text-[var(--text)]">{formatMoney(item.total_pnl_usdc)}</td>
+                          <td className="px-4 py-3 text-[var(--warning)]">{formatPercent(item.max_drawdown_pct)}</td>
+                          <td className="px-4 py-3 text-[var(--muted)]">{formatCount(item.fill_count)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <LoadingBlock title="Select a suite to rank strategy candidates." />
+              )}
+            </ShellPanel>
+          </div>
+
+          <ShellPanel className="p-5">
+            <ShellHeader
+              eyebrow="Runs"
+              title="Completed backtest runs"
+              action={`${backtests.data?.count ?? 0} loaded`}
+            />
+            {backtests.isLoading ? (
+              <LoadingBlock title="Loading completed backtest runs." />
+            ) : backtests.data && backtests.data.items.length > 0 ? (
+              <div className="overflow-x-auto border border-[var(--border)] bg-[var(--bg-elevated)]">
+                <table className="min-w-full text-left text-sm">
+                  <thead className="border-b border-[var(--border)] text-[var(--muted)]">
+                    <tr>
+                      <th className="px-4 py-3 font-medium">Run</th>
+                      <th className="px-4 py-3 font-medium">Suite</th>
+                      <th className="px-4 py-3 font-medium">Strategy</th>
+                      <th className="px-4 py-3 font-medium">Return</th>
+                      <th className="px-4 py-3 font-medium">P&amp;L</th>
+                      <th className="px-4 py-3 font-medium">Drawdown</th>
+                      <th className="px-4 py-3 font-medium">Fills</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {backtests.data.items.map((run) => (
+                      <tr key={run.run_id} className="border-b border-[var(--border)] last:border-b-0">
+                        <td className="px-4 py-3 text-[var(--text)]">
+                          <Link
+                            href={`/backtests/${run.run_id}`}
+                            className="underline decoration-[var(--border)] underline-offset-4"
+                          >
+                            {run.run_id}
+                          </Link>
+                        </td>
+                        <td className="px-4 py-3 text-[var(--muted)]">{run.suite_id ?? "--"}</td>
+                        <td className="px-4 py-3 text-[var(--text)]">{run.strategy_id ?? "--"}</td>
+                        <td className="px-4 py-3 text-[var(--accent)]">{formatSignedPercent(run.total_return_pct)}</td>
+                        <td className="px-4 py-3 text-[var(--text)]">{formatMoney(run.total_pnl_usdc)}</td>
+                        <td className="px-4 py-3 text-[var(--warning)]">{formatPercent(run.max_drawdown_pct)}</td>
+                        <td className="px-4 py-3 text-[var(--muted)]">{formatCount(run.fill_count)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <LoadingBlock title="No completed backtest runs yet." />
+            )}
+          </ShellPanel>
         </section>
       </div>
     </main>

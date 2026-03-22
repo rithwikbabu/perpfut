@@ -132,6 +132,100 @@ export type ArtifactListResponse = {
 
 export type RunAnalysisResponse = RunAnalysis;
 
+export type BacktestRunRequest = {
+  productIds: string[];
+  strategyIds: string[];
+  start: string;
+  end: string;
+  granularity: "ONE_MINUTE";
+  lookbackCandles?: number;
+  signalScale?: number;
+  startingCollateralUsdc?: number;
+  maxAbsPosition?: number;
+  maxGrossPosition?: number;
+  maxLeverage?: number;
+  slippageBps?: number;
+};
+
+export type BacktestJobStatusResponse = {
+  job_id: string;
+  status: string;
+  pid: number | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  suite_id: string | null;
+  dataset_id: string | null;
+  run_ids: string[];
+  error: string | null;
+  log_path: string | null;
+  request: BacktestRunRequest;
+};
+
+export type BacktestRunSummary = {
+  run_id: string;
+  created_at: string | null;
+  suite_id: string | null;
+  dataset_id: string | null;
+  product_id: string | null;
+  strategy_id: string | null;
+  total_pnl_usdc: number;
+  total_return_pct: number;
+  max_drawdown_usdc: number;
+  max_drawdown_pct: number;
+  turnover_usdc: number;
+  fill_count: number;
+  avg_abs_exposure_pct: number;
+  max_abs_exposure_pct: number;
+};
+
+export type BacktestsListResponse = {
+  items: BacktestRunSummary[];
+  count: number;
+  active_job: BacktestJobStatusResponse | null;
+};
+
+export type BacktestSuiteSummary = {
+  suite_id: string;
+  created_at: string | null;
+  dataset_id: string | null;
+  products: string[];
+  strategies: string[];
+  run_ids: string[];
+};
+
+export type BacktestSuitesListResponse = {
+  items: BacktestSuiteSummary[];
+  count: number;
+  active_job: BacktestJobStatusResponse | null;
+};
+
+export type BacktestSuiteComparisonItem = {
+  rank: number;
+  run_id: string;
+  strategy_id: string | null;
+  total_pnl_usdc: number;
+  total_return_pct: number;
+  max_drawdown_usdc: number;
+  max_drawdown_pct: number;
+  turnover_usdc: number;
+  fill_count: number;
+  avg_abs_exposure_pct: number;
+  max_abs_exposure_pct: number;
+  decision_counts: Record<string, number>;
+};
+
+export type BacktestSuiteDetailResponse = {
+  suite_id: string;
+  created_at: string | null;
+  dataset_id: string | null;
+  products: string[];
+  strategies: string[];
+  run_ids: string[];
+  ranking_policy: string;
+  items: BacktestSuiteComparisonItem[];
+};
+
 const API_BASE = "/api/perpfut";
 
 export class ApiError extends Error {
@@ -175,6 +269,10 @@ export function startPaperRun(request: PaperRunRequest): Promise<PaperRunStatusR
 
 export function stopPaperRun(): Promise<PaperRunStatusResponse> {
   return postJson<PaperRunStatusResponse>("/paper-runs/stop");
+}
+
+export function startBacktest(request: BacktestRunRequest): Promise<BacktestJobStatusResponse> {
+  return postJson<BacktestJobStatusResponse>("/backtests", request);
 }
 
 async function buildApiError(response: Response): Promise<ApiError> {
