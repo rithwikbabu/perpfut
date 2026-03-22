@@ -27,7 +27,25 @@ The backtest portfolio layer sits above per-asset signals:
 
 ## CLI
 
-Launch a backtest suite:
+Build or reuse a cached dataset:
+
+```bash
+python3 -m perpfut dataset build \
+  --product-id BTC-PERP-INTX \
+  --product-id ETH-PERP-INTX \
+  --start 2026-03-20T00:00:00+00:00 \
+  --end 2026-03-21T00:00:00+00:00 \
+  --granularity ONE_MINUTE
+```
+
+Inspect cached datasets:
+
+```bash
+python3 -m perpfut dataset list
+python3 -m perpfut dataset show --dataset-id <dataset_id>
+```
+
+Launch a backtest suite from a dataset definition:
 
 ```bash
 python3 -m perpfut backtest run \
@@ -45,6 +63,15 @@ python3 -m perpfut backtest run \
   --slippage-bps 3
 ```
 
+Launch a backtest suite from an already-built dataset:
+
+```bash
+python3 -m perpfut backtest run \
+  --dataset-id <dataset_id> \
+  --strategy-id momentum \
+  --strategy-id mean_reversion
+```
+
 Inspect backtest outputs:
 
 ```bash
@@ -56,6 +83,8 @@ python3 -m perpfut backtest compare --suite-id <suite_id>
 Important behavior:
 
 - invalid strategy IDs are rejected before any historical data fetches occur
+- identical dataset requests reuse the same cached dataset id instead of refetching Coinbase
+- `dataset build`/`dataset show` surface clean CLI exits for invalid ranges or missing datasets
 - backtest suites require at least one executable cycle
 - `backtest show` and `backtest compare` surface clean CLI exits for missing or
   invalid artifacts
@@ -74,6 +103,8 @@ runs/
     │       ├── manifest.json
     │       ├── BTC-PERP-INTX.json
     │       └── ETH-PERP-INTX.json
+    │       └── .cache/
+    │           └── aligned_windows_lookback_<n>_<product_hash>.json
     ├── runs/
     │   └── <run_id>/
     │       ├── manifest.json
@@ -96,6 +127,8 @@ runs/
 Artifacts mean:
 
 - `datasets/<dataset_id>/`: persisted historical candle inputs for reuse
+- `datasets/<dataset_id>/manifest.json`: dataset identity, fingerprint, source, coverage, and candle counts
+- `datasets/<dataset_id>/.cache/`: internal aligned-window caches used to accelerate repeated runs
 - `runs/<run_id>/`: one strategy run over one dataset
 - `suites/<suite_id>/`: suite manifest linking multiple strategy runs
 - `control/`: local API job orchestration metadata and logs
@@ -112,6 +145,9 @@ Backtest run events are portfolio-oriented:
 Backtest routes are rooted at `/api`.
 
 - `GET /api/backtests`
+- `GET /api/datasets`
+- `POST /api/datasets`
+- `GET /api/datasets/{datasetId}`
 - `POST /api/backtests`
 - `GET /api/backtests/{runId}`
 - `GET /api/backtests/{runId}/analysis`
@@ -121,19 +157,30 @@ Backtest routes are rooted at `/api`.
 - `GET /api/backtest-suites`
 - `GET /api/backtest-suites/{suiteId}`
 
+`POST /api/datasets` is synchronous in v1: it builds or reuses a cached dataset
+and returns the dataset summary in the same response.
+
 `POST /api/backtests` launches one local background backtest job at a time and
 returns job metadata. Job status is surfaced through the `active_job` field on
 the list routes.
+
+Example dataset build request:
+
+```json
+{
+  "productIds": ["BTC-PERP-INTX", "ETH-PERP-INTX"],
+  "start": "2026-03-20T00:00:00+00:00",
+  "end": "2026-03-21T00:00:00+00:00",
+  "granularity": "ONE_MINUTE"
+}
+```
 
 Example request:
 
 ```json
 {
-  "productIds": ["BTC-PERP-INTX", "ETH-PERP-INTX"],
+  "datasetId": "20260322T120000000000Z",
   "strategyIds": ["momentum", "mean_reversion"],
-  "start": "2026-03-20T00:00:00+00:00",
-  "end": "2026-03-21T00:00:00+00:00",
-  "granularity": "ONE_MINUTE",
   "startingCollateralUsdc": 10000,
   "maxAbsPosition": 0.5,
   "maxGrossPosition": 1.0,
@@ -144,6 +191,7 @@ Example request:
 
 The list endpoints are intentionally split:
 
+- `/api/datasets` returns cached dataset summaries
 - `/api/backtests` returns completed backtest runs and the current active job
 - `/api/backtest-suites` returns completed suite manifests and the current active job
 - `/api/backtest-suites/{suiteId}` returns the ranked suite comparison payload

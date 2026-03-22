@@ -8,6 +8,7 @@ from perpfut.backtest_data import (
     DATASET_VERSION,
     HistoricalDatasetBuilder,
     compute_dataset_fingerprint,
+    list_dataset_summaries,
     synthesize_aligned_snapshots,
 )
 from perpfut.domain import Candle
@@ -376,3 +377,36 @@ def test_synthesize_aligned_snapshots_recovers_from_malformed_cache(tmp_path) ->
 
     assert rebuilt_frames == frames
     assert json.loads(cache_path.read_text(encoding="utf-8"))["lookback_candles"] == 3
+
+
+def test_list_dataset_summaries_skips_malformed_manifests(tmp_path) -> None:
+    datasets_dir = tmp_path / "backtests" / "datasets"
+    valid_dir = datasets_dir / "dataset-valid"
+    valid_dir.mkdir(parents=True)
+    (valid_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "dataset_id": "dataset-valid",
+                "created_at": "2026-03-20T00:00:00+00:00",
+                "fingerprint": "fp-1",
+                "source": DATASET_SOURCE,
+                "version": DATASET_VERSION,
+                "products": ["BTC-PERP-INTX"],
+                "start": "2026-03-20T00:00:00+00:00",
+                "end": "2026-03-21T00:00:00+00:00",
+                "granularity": "ONE_MINUTE",
+                "candle_counts": {"BTC-PERP-INTX": 1440},
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    invalid_dir = datasets_dir / "dataset-invalid"
+    invalid_dir.mkdir(parents=True)
+    (invalid_dir / "manifest.json").write_text("{not-json", encoding="utf-8")
+
+    summaries = list_dataset_summaries(tmp_path, limit=10)
+
+    assert [item.dataset_id for item in summaries] == ["dataset-valid"]

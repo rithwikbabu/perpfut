@@ -37,6 +37,8 @@ All routes are rooted at `/api`.
 - `GET /api/runs/{runId}/positions?limit=`
 - `GET /api/runs/{runId}/analysis`
 - `GET /api/paper-runs/active`
+- `GET /api/datasets`
+- `GET /api/datasets/{datasetId}`
 - `GET /api/backtests`
 - `GET /api/backtests/{runId}`
 - `GET /api/backtests/{runId}/analysis`
@@ -50,6 +52,7 @@ All routes are rooted at `/api`.
 
 - `POST /api/paper-runs`
 - `POST /api/paper-runs/stop`
+- `POST /api/datasets`
 - `POST /api/backtests`
 
 Start requests accept:
@@ -68,7 +71,35 @@ Start requests accept:
 
 The service allows only one active paper run at a time.
 
-Backtest launch requests accept:
+Dataset build requests accept:
+
+```json
+{
+  "productIds": ["BTC-PERP-INTX", "ETH-PERP-INTX"],
+  "start": "2026-03-20T00:00:00+00:00",
+  "end": "2026-03-21T00:00:00+00:00",
+  "granularity": "ONE_MINUTE"
+}
+```
+
+Dataset builds are synchronous in v1 and return the dataset summary directly.
+Requests must use timezone-aware timestamps.
+
+Backtest launch requests accept either a cached dataset id:
+
+```json
+{
+  "datasetId": "20260322T120000000000Z",
+  "strategyIds": ["momentum", "mean_reversion"],
+  "startingCollateralUsdc": 10000,
+  "maxAbsPosition": 0.5,
+  "maxGrossPosition": 1.0,
+  "maxLeverage": 2.0,
+  "slippageBps": 3
+}
+```
+
+or an inline historical range:
 
 ```json
 {
@@ -123,6 +154,17 @@ The nested decision objects use the same field names written into run artifacts.
 
 ### Backtest API Shape
 
+`GET /api/datasets` returns:
+
+- `items`: newest-first cached datasets with fingerprint, source, coverage, and candle counts
+- `count`
+
+`GET /api/datasets/{datasetId}` returns:
+
+- dataset identity: `datasetId`, `createdAt`, `fingerprint`, `source`, `version`
+- coverage: `products`, `start`, `end`, `granularity`
+- counts: `candleCounts`
+
 `GET /api/backtests` returns:
 
 - `items`: newest-first completed backtest runs with canonical metrics
@@ -153,6 +195,7 @@ The nested decision objects use the same field names written into run artifacts.
 - The API does not maintain in-memory trading state for the UI.
 - Dashboard responses are derived from the newest readable artifact files.
 - Paper runs are launched by spawning `python3 -m perpfut paper ...`.
+- Dataset builds are handled synchronously inside the API process in v1.
 - Backtest suites are launched by spawning `python3 -m perpfut backtest run ...`.
 - Stop requests send `SIGTERM`, then escalate to `SIGKILL` after 5 seconds.
 - Process metadata writes are atomic and protected by a local control lock.
