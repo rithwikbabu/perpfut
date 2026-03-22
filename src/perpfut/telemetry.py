@@ -76,7 +76,12 @@ class ArtifactStore:
         run_dir.mkdir(parents=True, exist_ok=False)
         return cls(run_dir, resumed_from_run_id=resumed_from_run_id)
 
-    def write_metadata(self, config: AppConfig) -> None:
+    def write_metadata(
+        self,
+        config: AppConfig,
+        *,
+        extra_manifest: dict[str, Any] | None = None,
+    ) -> None:
         manifest = {
             "run_id": self.run_id,
             "created_at": datetime.now(timezone.utc),
@@ -86,6 +91,8 @@ class ArtifactStore:
             "git_sha": _resolve_git_sha(),
             "resumed_from_run_id": self.resumed_from_run_id,
         }
+        if extra_manifest:
+            manifest.update(extra_manifest)
         self._write_json(self.manifest_path, manifest)
         self._write_json(self.config_path, config)
 
