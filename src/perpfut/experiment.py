@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, replace
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -15,6 +15,47 @@ from .engine import PaperEngine
 from .run_history import load_run_manifest
 from .strategy_registry import validate_strategy_id
 from .telemetry import ArtifactStore
+
+
+@dataclass(frozen=True, slots=True)
+class ExperimentComparisonEntry:
+    rank: int
+    run_id: str
+    strategy_id: str | None
+    strategy_params: dict[str, Any]
+    total_pnl_usdc: float
+    total_return_pct: float
+    max_drawdown_usdc: float
+    max_drawdown_pct: float
+    turnover_usdc: float
+    fill_count: int
+    avg_abs_exposure_pct: float
+    max_abs_exposure_pct: float
+    decision_counts: dict[str, int]
+
+
+@dataclass(frozen=True, slots=True)
+class ExperimentBaselineSummary:
+    run_id: str
+    strategy_id: str | None
+    total_pnl_usdc: float
+    total_return_pct: float
+    max_drawdown_usdc: float
+    max_drawdown_pct: float
+    turnover_usdc: float
+    fill_count: int
+    avg_abs_exposure_pct: float
+    max_abs_exposure_pct: float
+    decision_counts: dict[str, int]
+
+
+@dataclass(frozen=True, slots=True)
+class ExperimentComparisonReport:
+    source_run_id: str
+    ranking_policy: str
+    experiments_count: int
+    baseline: ExperimentBaselineSummary | None
+    items: tuple[ExperimentComparisonEntry, ...]
 
 
 class ReplayMarketDataClient:
@@ -107,6 +148,73 @@ def load_replay_snapshots(source_run_dir: Path) -> list[MarketSnapshot]:
             continue
         snapshots.append(_parse_market_snapshot(market))
     return snapshots
+
+
+def compare_experiments(*, base_runs_dir: Path, source_run_id: str) -> ExperimentComparisonReport:
+    source_run_dir = base_runs_dir / source_run_id
+    if not source_run_dir.exists():
+        raise FileNotFoundError(f"source run not found: {source_run_id}")
+
+    entries: list[ExperimentComparisonEntry] = []
+    for run_dir in _list_experiment_runs(base_runs_dir / "experiments"):
+        try:
+            manifest = _load_optional_dict(run_dir / "manifest.json")
+        except (OSError, json.JSONDecodeError, ValueError):
+            continue
+        if not isinstance(manifest, dict):
+            continue
+        if _as_str(manifest.get("source_run_id")) != source_run_id:
+            continue
+        try:
+            analysis = _load_analysis_payload(run_dir)
+        except (FileNotFoundError, OSError, json.JSONDecodeError, ValueError):
+            continue
+        entries.append(
+            ExperimentComparisonEntry(
+                rank=0,
+                run_id=run_dir.name,
+                strategy_id=_as_str(analysis.get("strategy_id")),
+                strategy_params=_coerce_dict(manifest.get("strategy_params")),
+                total_pnl_usdc=_analysis_float(analysis, "total_pnl_usdc"),
+                total_return_pct=_analysis_float(analysis, "total_return_pct"),
+                max_drawdown_usdc=_analysis_float(analysis, "max_drawdown_usdc"),
+                max_drawdown_pct=_analysis_float(analysis, "max_drawdown_pct"),
+                turnover_usdc=_analysis_float(analysis, "turnover_usdc"),
+                fill_count=_analysis_int(analysis, "fill_count"),
+                avg_abs_exposure_pct=_analysis_float(analysis, "avg_abs_exposure_pct"),
+                max_abs_exposure_pct=_analysis_float(analysis, "max_abs_exposure_pct"),
+                decision_counts=_coerce_int_dict(analysis.get("decision_counts")),
+            )
+        )
+
+    if not entries:
+        raise ValueError(f"no experiments found for source run: {source_run_id}")
+
+    sorted_entries = sorted(
+        entries,
+        key=lambda item: (
+            -item.total_return_pct,
+            item.max_drawdown_pct,
+            item.turnover_usdc,
+            item.fill_count,
+            item.run_id,
+        ),
+    )
+    ranked_entries = tuple(
+        replace(entry, rank=index)
+        for index, entry in enumerate(sorted_entries, start=1)
+    )
+    baseline = _load_baseline_summary(source_run_dir)
+    return ExperimentComparisonReport(
+        source_run_id=source_run_id,
+        ranking_policy=(
+            "rank by total_return_pct desc, max_drawdown_pct asc, "
+            "turnover_usdc asc, fill_count asc, run_id asc"
+        ),
+        experiments_count=len(ranked_entries),
+        baseline=baseline,
+        items=ranked_entries,
+    )
 
 
 def build_experiment_config(
@@ -232,6 +340,43 @@ def _load_ndjson(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def _list_experiment_runs(experiments_dir: Path) -> list[Path]:
+    if not experiments_dir.exists():
+        return []
+    return sorted((path for path in experiments_dir.iterdir() if path.is_dir()), reverse=True)
+
+
+def _load_analysis_payload(run_dir: Path) -> dict[str, Any]:
+    try:
+        return asdict(analyze_run(run_dir))
+    except (FileNotFoundError, OSError, json.JSONDecodeError, ValueError):
+        analysis_path = run_dir / "analysis.json"
+        if not analysis_path.exists():
+            raise
+        payload = json.loads(analysis_path.read_text(encoding="utf-8"))
+        return _require_dict(payload, analysis_path)
+
+
+def _load_baseline_summary(source_run_dir: Path) -> ExperimentBaselineSummary | None:
+    try:
+        analysis = analyze_run(source_run_dir)
+    except (FileNotFoundError, OSError, json.JSONDecodeError, ValueError):
+        return None
+    return ExperimentBaselineSummary(
+        run_id=analysis.run_id,
+        strategy_id=analysis.strategy_id,
+        total_pnl_usdc=analysis.total_pnl_usdc,
+        total_return_pct=analysis.total_return_pct,
+        max_drawdown_usdc=analysis.max_drawdown_usdc,
+        max_drawdown_pct=analysis.max_drawdown_pct,
+        turnover_usdc=analysis.turnover_usdc,
+        fill_count=analysis.fill_count,
+        avg_abs_exposure_pct=analysis.avg_abs_exposure_pct,
+        max_abs_exposure_pct=analysis.max_abs_exposure_pct,
+        decision_counts=analysis.decision_counts,
+    )
+
+
 def _parse_market_snapshot(payload: dict[str, Any]) -> MarketSnapshot:
     candles_payload = payload.get("candles")
     candles: list[Candle] = []
@@ -268,6 +413,36 @@ def _parse_datetime(value: Any) -> datetime:
 
 def _as_str(value: Any) -> str | None:
     return value if isinstance(value, str) else None
+
+
+def _analysis_float(payload: dict[str, Any], key: str) -> float:
+    value = payload.get(key)
+    if isinstance(value, (int, float)):
+        return float(value)
+    raise ValueError(f"invalid analysis payload missing numeric field '{key}'")
+
+
+def _analysis_int(payload: dict[str, Any], key: str) -> int:
+    value = payload.get(key)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    raise ValueError(f"invalid analysis payload missing integer field '{key}'")
+
+
+def _coerce_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _coerce_int_dict(value: Any) -> dict[str, int]:
+    if not isinstance(value, dict):
+        return {}
+    items: dict[str, int] = {}
+    for key, item in value.items():
+        if isinstance(key, str) and isinstance(item, int):
+            items[key] = item
+    return items
 
 
 def _as_float(value: Any) -> float:

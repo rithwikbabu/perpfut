@@ -78,6 +78,26 @@ The same canonical analysis is available:
 - in the dashboard overview via `latest_analysis`
 - in the run detail page at `/runs/<run_id>`
 
+## Strategy Iteration
+
+Replay a recorded source run through a chosen strategy:
+
+```bash
+python3 -m perpfut experiment \
+  --source-run-id 20260322T020000000000Z_source \
+  --strategy-id mean_reversion
+```
+
+Rank all experiment outputs for that source run:
+
+```bash
+python3 -m perpfut compare-experiments \
+  --source-run-id 20260322T020000000000Z_source
+```
+
+Experiment artifacts are stored under `runs/experiments/` and use the same
+canonical analysis contract as normal run reporting.
+
 ## Design Principles
 
 - Keep pure trading logic separate from exchange adapters.
@@ -98,3 +118,4 @@ The same canonical analysis is available:
 - MVP readiness gates: `docs/mvp-readiness.md`
 - Operator API and UI contract: `docs/operator-api.md`
 - Performance inspection guide: `docs/performance-reporting.md`
+- Strategy iteration workflow: `docs/strategy-iteration.md`
