@@ -168,6 +168,25 @@ def test_run_artifact_endpoints_wrap_documents_and_lists(monkeypatch, tmp_path) 
     assert events_response.json()["items"][0]["sequence"] == 2
 
 
+def test_dashboard_overview_allows_latest_decision_to_be_null_for_older_runs(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("RUNS_DIR", str(tmp_path))
+    run_id = "20260322T020000000000Z_legacy"
+    _make_run(tmp_path, run_id, mode="paper")
+    _write_json(
+        tmp_path / run_id / "state.json",
+        {
+            "run_id": run_id,
+            "equity_usdc": 10_100.0,
+        },
+    )
+    client = TestClient(create_app())
+
+    response = client.get("/api/dashboard/overview", params={"mode": "paper", "limit": 1})
+
+    assert response.status_code == 200
+    assert response.json()["latest_decision"] is None
+
+
 def test_missing_state_returns_not_found(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("RUNS_DIR", str(tmp_path))
     run_id = "20260322T020000000000Z_beta"

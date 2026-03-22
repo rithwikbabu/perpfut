@@ -86,3 +86,30 @@ def test_paper_engine_records_skip_reason_when_delta_is_below_rebalance_threshol
     assert result.no_trade_reason.code == "below_rebalance_threshold"
     assert result.execution_summary.action == "skipped"
     assert result.risk_decision.rebalance_eligible is False
+
+
+def test_paper_engine_records_skip_reason_when_delta_is_below_min_trade_notional(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("MIN_TRADE_NOTIONAL_USDC", "15000")
+    config = AppConfig.from_env().with_overrides(
+        product_id="BTC-PERP-INTX",
+        iterations=1,
+        interval_seconds=0,
+        runs_dir=tmp_path,
+    )
+    artifact_store = ArtifactStore.create(config.runtime.runs_dir)
+    artifact_store.write_metadata(config)
+    engine = PaperEngine(
+        config=config,
+        market_data=FakeMarketData(),
+        artifact_store=artifact_store,
+    )
+
+    result = engine.run_cycle(1)
+
+    assert result.order_intent is None
+    assert result.no_trade_reason is not None
+    assert result.no_trade_reason.code == "below_min_trade_notional"
+    assert result.execution_summary.reason_code == "below_min_trade_notional"
