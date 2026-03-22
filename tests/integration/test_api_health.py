@@ -24,3 +24,12 @@ def test_openapi_describes_health_route() -> None:
     assert response.status_code == 200
     payload = response.json()
     assert "/api/health" in payload["paths"]
+
+
+def test_docs_route_is_exposed() -> None:
+    client = TestClient(create_app())
+
+    response = client.get("/api/docs")
+
+    assert response.status_code == 200
+    assert "Swagger UI" in response.text

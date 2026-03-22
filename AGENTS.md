@@ -29,6 +29,10 @@ Do not turn the repo into a generic trading framework unless the user asks for i
 - Install: `python3 -m pip install -e '.[dev]'`
 - Tests: `python3 -m pytest`
 - Lint: `python3 -m ruff check .`
+- Run operator API: `python3 -m perpfut api`
+- Frontend install: `cd apps/web && npm ci`
+- Frontend lint: `cd apps/web && npm run lint`
+- Frontend build: `cd apps/web && npm run build`
 - Paper smoke test: `python3 -m perpfut paper --iterations 1`
 - Discover Coinbase perps: `python3 -m perpfut products --limit 10`
 
@@ -39,6 +43,7 @@ Do not turn the repo into a generic trading framework unless the user asks for i
 - `docs/coinbase.md`: exchange assumptions, endpoints, and auth notes.
 - `docs/trading-contract.md`: strategy, risk, and execution invariants.
 - `docs/event-schema.md`: artifact contract.
+- `docs/operator-api.md`: local operator API routes and frontend contract.
 - `skills/`: repo-local playbooks for repeatable agent tasks.
 - `tests/fixtures/coinbase/`: saved Coinbase payloads for parser tests.
 
