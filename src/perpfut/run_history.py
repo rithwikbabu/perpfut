@@ -53,14 +53,15 @@ def find_latest_run(
 
 def summarize_runs(base_dir: Path, *, limit: int = 10) -> list[dict[str, Any]]:
     summaries = []
-    for run_dir in list_runs(base_dir)[:limit]:
-        manifest = {}
-        if (run_dir / "manifest.json").exists():
-            try:
-                loaded = load_run_manifest(run_dir)
-            except (OSError, json.JSONDecodeError):
-                loaded = {}
-            manifest = loaded if isinstance(loaded, dict) else {}
+    for run_dir in list_runs(base_dir):
+        manifest_path = run_dir / "manifest.json"
+        if not manifest_path.exists():
+            continue
+        try:
+            loaded = load_run_manifest(run_dir)
+        except (OSError, json.JSONDecodeError):
+            loaded = {}
+        manifest = loaded if isinstance(loaded, dict) else {}
         summaries.append(
             {
                 "run_id": run_dir.name,
@@ -70,6 +71,8 @@ def summarize_runs(base_dir: Path, *, limit: int = 10) -> list[dict[str, Any]]:
                 "resumed_from_run_id": manifest.get("resumed_from_run_id"),
             }
         )
+        if len(summaries) >= limit:
+            break
     return summaries
 
 

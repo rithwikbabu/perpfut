@@ -247,3 +247,85 @@ def test_analyze_run_prepends_configured_start_for_single_snapshot_positions(tmp
     assert analysis.total_pnl_usdc == 25.0
     assert analysis.total_return_pct == 0.0025
     assert [point.label for point in analysis.equity_series] == ["start", "cycle-0001"]
+
+
+def test_analyze_run_uses_resumed_run_equity_as_starting_equity(tmp_path) -> None:
+    previous_run = tmp_path / "20260322T010000000000Z_prev"
+    previous_run.mkdir(parents=True)
+    _write_json(
+        previous_run / "manifest.json",
+        {
+            "run_id": previous_run.name,
+            "created_at": "2026-03-22T01:00:00Z",
+            "mode": "live",
+            "product_id": "BTC-PERP-INTX",
+        },
+    )
+    _write_json(
+        previous_run / "state.json",
+        {
+            "run_id": previous_run.name,
+            "cycle_id": "cycle-0005",
+            "exchange_snapshot": {
+                "summary": {
+                    "total_balance": {"value": 12000.0},
+                    "unrealized_pnl": {"value": 0.0},
+                }
+            },
+        },
+    )
+
+    resumed_run = tmp_path / "20260322T020000000000Z_resumed"
+    resumed_run.mkdir(parents=True)
+    _write_json(
+        resumed_run / "manifest.json",
+        {
+            "run_id": resumed_run.name,
+            "created_at": "2026-03-22T02:00:00Z",
+            "mode": "live",
+            "product_id": "BTC-PERP-INTX",
+            "resumed_from_run_id": previous_run.name,
+        },
+    )
+    _write_json(
+        resumed_run / "config.json",
+        {
+            "simulation": {
+                "starting_collateral_usdc": 10000.0,
+                "max_leverage": 2.0,
+            }
+        },
+    )
+    _write_ndjson(
+        resumed_run / "events.ndjson",
+        [
+            {
+                "cycle_id": "cycle-0001",
+                "timestamp": "2026-03-22T02:01:00Z",
+                "execution_summary": {"reason_code": "filled"},
+            },
+        ],
+    )
+    _write_json(
+        resumed_run / "state.json",
+        {
+            "run_id": resumed_run.name,
+            "cycle_id": "cycle-0001",
+            "current_position": 0.2,
+            "execution_summary": {"reason_code": "filled"},
+            "exchange_snapshot": {
+                "as_of": "2026-03-22T02:05:00Z",
+                "summary": {
+                    "total_balance": {"value": 12050.0},
+                    "unrealized_pnl": {"value": 25.0},
+                },
+            },
+        },
+    )
+
+    analysis = analyze_run(resumed_run)
+
+    assert analysis.starting_equity_usdc == 12000.0
+    assert analysis.ending_equity_usdc == 12050.0
+    assert analysis.total_pnl_usdc == 50.0
+    assert analysis.total_return_pct == 50.0 / 12000.0

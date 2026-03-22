@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ..analysis import RunAnalysis, analyze_run
+from pydantic import ValidationError
 from .schemas import (
     AnalysisSeriesPointResponse,
     DashboardOverviewResponse,
@@ -167,24 +168,23 @@ def _run_summary_dict(run_id: str, manifest: dict[str, Any]) -> dict[str, Any]:
 def _build_latest_decision(latest_state: dict[str, Any] | None) -> LatestDecisionResponse | None:
     if not latest_state:
         return None
-    signal = _coerce_dict(latest_state.get("signal"))
-    risk_decision = _coerce_dict(latest_state.get("risk_decision"))
-    execution_summary = _coerce_dict(latest_state.get("execution_summary"))
-    no_trade_reason = _coerce_dict(latest_state.get("no_trade_reason"))
+    signal = _validate_optional_model(SignalDecisionResponse, latest_state.get("signal"))
+    risk_decision = _validate_optional_model(RiskDecisionResponse, latest_state.get("risk_decision"))
+    execution_summary = _validate_optional_model(
+        ExecutionSummaryResponse,
+        latest_state.get("execution_summary"),
+    )
+    no_trade_reason = _validate_optional_model(NoTradeReasonResponse, latest_state.get("no_trade_reason"))
     if not any((signal, risk_decision, execution_summary, no_trade_reason)):
         return None
     return LatestDecisionResponse(
         cycle_id=_coerce_str(latest_state.get("cycle_id")),
         mode=_coerce_str(latest_state.get("mode")),
         product_id=_coerce_str(latest_state.get("product_id")),
-        signal=SignalDecisionResponse.model_validate(signal) if signal else None,
-        risk_decision=RiskDecisionResponse.model_validate(risk_decision) if risk_decision else None,
-        execution_summary=(
-            ExecutionSummaryResponse.model_validate(execution_summary)
-            if execution_summary
-            else None
-        ),
-        no_trade_reason=NoTradeReasonResponse.model_validate(no_trade_reason) if no_trade_reason else None,
+        signal=signal,
+        risk_decision=risk_decision,
+        execution_summary=execution_summary,
+        no_trade_reason=no_trade_reason,
         order_intent=_coerce_dict(latest_state.get("order_intent")),
         fill=_coerce_dict(latest_state.get("fill")),
     )
@@ -235,3 +235,12 @@ def _require_document_dict(value: Any, path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError(f"invalid json object in {path}")
     return value
+
+
+def _validate_optional_model(model: Any, payload: Any) -> Any | None:
+    if not isinstance(payload, dict):
+        return None
+    try:
+        return model.model_validate(payload)
+    except ValidationError:
+        return None
