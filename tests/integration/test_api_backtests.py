@@ -33,6 +33,9 @@ def _make_backtest_run(runs_dir: Path, run_id: str, *, suite_id: str, strategy_i
             "dataset_id": "dataset-1",
             "suite_id": suite_id,
             "strategy_id": strategy_id,
+            "date_range_start": "2026-03-20T00:00:00+00:00",
+            "date_range_end": "2026-03-21T00:00:00+00:00",
+            "granularity": "ONE_MINUTE",
         },
     )
     _write_json(
@@ -71,6 +74,9 @@ def _make_backtest_run(runs_dir: Path, run_id: str, *, suite_id: str, strategy_i
             "strategy_id": strategy_id,
             "started_at": None,
             "ended_at": None,
+            "date_range_start": "2026-03-20T00:00:00+00:00",
+            "date_range_end": "2026-03-21T00:00:00+00:00",
+            "sharpe_ratio": 1.23,
             "cycle_count": 2,
             "starting_equity_usdc": 10000.0,
             "ending_equity_usdc": 10100.0,
@@ -93,7 +99,13 @@ def _make_backtest_run(runs_dir: Path, run_id: str, *, suite_id: str, strategy_i
     )
     _write_ndjson(run_dir / "events.ndjson", [{"cycle_id": "cycle-0002", "sequence": 2}])
     _write_ndjson(run_dir / "fills.ndjson", [{"fill_id": "fill-1"}])
-    _write_ndjson(run_dir / "positions.ndjson", [{"cycle_id": "cycle-0002", "position": {"equity_usdc": 10100.0}}])
+    _write_ndjson(
+        run_dir / "positions.ndjson",
+        [
+            {"cycle_id": "cycle-0001", "position": {"equity_usdc": 10050.0, "gross_notional_usdc": 2000.0}},
+            {"cycle_id": "cycle-0002", "position": {"equity_usdc": 10100.0, "gross_notional_usdc": 2500.0}},
+        ],
+    )
 
 
 def _make_backtest_suite(runs_dir: Path, suite_id: str, run_ids: list[str], strategies: list[str]) -> None:
@@ -105,6 +117,8 @@ def _make_backtest_suite(runs_dir: Path, suite_id: str, run_ids: list[str], stra
             "suite_id": suite_id,
             "created_at": f"{suite_id}-created",
             "dataset_id": "dataset-1",
+            "date_range_start": "2026-03-20T00:00:00+00:00",
+            "date_range_end": "2026-03-21T00:00:00+00:00",
             "products": ["BTC-PERP-INTX", "ETH-PERP-INTX"],
             "strategies": strategies,
             "run_ids": run_ids,
@@ -171,23 +185,29 @@ def test_backtests_list_and_detail_endpoints(monkeypatch, tmp_path) -> None:
     assert list_response.status_code == 200
     assert list_response.json()["count"] == 1
     assert list_response.json()["items"][0]["run_id"] == "run-2"
+    assert list_response.json()["items"][0]["date_range_start"] == "2026-03-20T00:00:00+00:00"
+    assert list_response.json()["items"][0]["date_range_end"] == "2026-03-21T00:00:00+00:00"
     assert list_response.json()["latest_job"] is None
 
     assert detail_response.status_code == 200
     assert detail_response.json()["analysis"]["strategy_id"] == "momentum"
+    assert detail_response.json()["analysis"]["sharpe_ratio"] == 1.23
 
     assert analysis_response.status_code == 200
     assert analysis_response.json()["run_id"] == "run-2"
+    assert analysis_response.json()["date_range_start"] == "2026-03-20T00:00:00+00:00"
 
     assert events_response.status_code == 200
     assert events_response.json()["items"][0]["sequence"] == 2
 
     assert suites_response.status_code == 200
     assert suites_response.json()["items"][0]["suite_id"] == "suite-1"
+    assert suites_response.json()["items"][0]["date_range_start"] == "2026-03-20T00:00:00+00:00"
     assert suites_response.json()["latest_job"] is None
 
     assert suite_detail_response.status_code == 200
     assert suite_detail_response.json()["items"][0]["rank"] == 1
+    assert suite_detail_response.json()["items"][0]["date_range_start"] == "2026-03-20T00:00:00+00:00"
 
 
 def test_backtest_endpoints_return_empty_state_when_no_artifacts_exist(monkeypatch, tmp_path) -> None:

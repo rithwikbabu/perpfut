@@ -58,6 +58,8 @@ def test_backtest_suite_runner_persists_runs_and_suite_manifest(tmp_path, monkey
 
     assert suite_manifest["dataset_id"] == "dataset-1"
     assert suite_manifest["strategies"] == ["momentum", "mean_reversion"]
+    assert suite_manifest["date_range_start"] == _build_dataset().start.isoformat()
+    assert suite_manifest["date_range_end"] == _build_dataset().end.isoformat()
     assert len(result.run_ids) == 2
     for item in result.items:
         run_dir = tmp_path / "backtests" / "runs" / item.run_id
@@ -68,7 +70,12 @@ def test_backtest_suite_runner_persists_runs_and_suite_manifest(tmp_path, monkey
         assert manifest["suite_id"] == result.suite_id
         assert manifest["dataset_id"] == "dataset-1"
         assert manifest["products"] == ["BTC-PERP-INTX", "ETH-PERP-INTX"]
+        assert manifest["date_range_start"] == _build_dataset().start.isoformat()
+        assert manifest["date_range_end"] == _build_dataset().end.isoformat()
         assert state["portfolio"]["equity_usdc"] == analysis["ending_equity_usdc"]
+        assert analysis["date_range_start"] == _build_dataset().start.isoformat()
+        assert analysis["date_range_end"] == _build_dataset().end.isoformat()
+        assert "sharpe_ratio" in analysis
         assert (run_dir / "events.ndjson").exists()
         assert (run_dir / "fills.ndjson").exists()
         assert (run_dir / "positions.ndjson").exists()

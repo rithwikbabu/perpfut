@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import math
+import statistics
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -24,6 +26,9 @@ class RunAnalysis:
     strategy_id: str | None
     started_at: str | None
     ended_at: str | None
+    date_range_start: str | None
+    date_range_end: str | None
+    sharpe_ratio: float | None
     cycle_count: int
     starting_equity_usdc: float
     ending_equity_usdc: float
@@ -42,6 +47,11 @@ class RunAnalysis:
     equity_series: tuple[SeriesPoint, ...]
     drawdown_series: tuple[SeriesPoint, ...]
     exposure_series: tuple[SeriesPoint, ...]
+
+
+GRANULARITY_PERIODS_PER_YEAR = {
+    "ONE_MINUTE": 365.0 * 24.0 * 60.0,
+}
 
 
 def analyze_run(run_dir: Path) -> RunAnalysis:
@@ -72,6 +82,8 @@ def analyze_run(run_dir: Path) -> RunAnalysis:
     drawdown_series = _build_drawdown_series(equity_series)
     exposure_series = _build_exposure_series(positions, state, max_abs_notional)
     decision_counts = _count_decisions(events, state)
+    date_range_start, date_range_end = _resolve_date_range(run_dir, manifest)
+    sharpe_ratio = _compute_sharpe_ratio(equity_series, manifest, run_dir)
 
     starting_equity = equity_series[0].value
     ending_equity = equity_series[-1].value
@@ -93,6 +105,9 @@ def analyze_run(run_dir: Path) -> RunAnalysis:
         strategy_id=_resolve_strategy_id(manifest, config),
         started_at=_resolve_started_at(manifest, events),
         ended_at=_resolve_ended_at(state, events),
+        date_range_start=date_range_start,
+        date_range_end=date_range_end,
+        sharpe_ratio=sharpe_ratio,
         cycle_count=_count_cycles(events, state, equity_series),
         starting_equity_usdc=starting_equity,
         ending_equity_usdc=ending_equity,
@@ -162,6 +177,32 @@ def _build_drawdown_series(equity_series: list[SeriesPoint]) -> list[SeriesPoint
         peak = max(peak, point.value)
         points.append(SeriesPoint(label=point.label, value=max(peak - point.value, 0.0)))
     return points
+
+
+def _compute_return_series(equity_series: list[SeriesPoint]) -> list[float]:
+    returns: list[float] = []
+    for previous, current in zip(equity_series, equity_series[1:]):
+        if abs(previous.value) <= 1e-12:
+            continue
+        returns.append((current.value / previous.value) - 1.0)
+    return returns
+
+
+def _compute_sharpe_ratio(
+    equity_series: list[SeriesPoint],
+    manifest: dict[str, Any],
+    run_dir: Path,
+) -> float | None:
+    periods_per_year = _resolve_periods_per_year(manifest, run_dir)
+    if periods_per_year is None:
+        return None
+    returns = _compute_return_series(equity_series)
+    if len(returns) < 2:
+        return None
+    volatility = statistics.stdev(returns)
+    if abs(volatility) <= 1e-12:
+        return None
+    return statistics.mean(returns) / volatility * math.sqrt(periods_per_year)
 
 
 def _prepend_configured_starting_equity(
@@ -294,6 +335,39 @@ def _resolve_ended_at(state: dict[str, Any], events: list[dict[str, Any]]) -> st
         if timestamp:
             return timestamp
     return None
+
+
+def _resolve_date_range(run_dir: Path, manifest: dict[str, Any]) -> tuple[str | None, str | None]:
+    date_range_start = _as_str(manifest.get("date_range_start"))
+    date_range_end = _as_str(manifest.get("date_range_end"))
+    if date_range_start or date_range_end:
+        return date_range_start, date_range_end
+    dataset_manifest = _load_backtest_dataset_manifest(run_dir, manifest)
+    if dataset_manifest is None:
+        return None, None
+    return _as_str(dataset_manifest.get("start")), _as_str(dataset_manifest.get("end"))
+
+
+def _resolve_periods_per_year(manifest: dict[str, Any], run_dir: Path) -> float | None:
+    granularity = _as_str(manifest.get("granularity"))
+    if granularity is None:
+        dataset_manifest = _load_backtest_dataset_manifest(run_dir, manifest)
+        if dataset_manifest is not None:
+            granularity = _as_str(dataset_manifest.get("granularity"))
+    if granularity is None:
+        return None
+    return GRANULARITY_PERIODS_PER_YEAR.get(granularity)
+
+
+def _load_backtest_dataset_manifest(run_dir: Path, manifest: dict[str, Any]) -> dict[str, Any] | None:
+    dataset_id = _as_str(manifest.get("dataset_id"))
+    if dataset_id is None:
+        return None
+    dataset_dir = run_dir.parent.parent / "datasets" / dataset_id
+    manifest_path = dataset_dir / "manifest.json"
+    if not manifest_path.exists():
+        return None
+    return _load_optional_json(manifest_path)
 
 
 def _resolve_realized_pnl(state: dict[str, Any]) -> float:

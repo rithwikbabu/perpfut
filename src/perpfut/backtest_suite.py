@@ -115,6 +115,9 @@ class BacktestSuiteRunner:
                     "dataset_id": self.dataset.dataset_id,
                     "suite_id": suite_id,
                     "products": list(self.products),
+                    "date_range_start": self.dataset.start.isoformat(),
+                    "date_range_end": self.dataset.end.isoformat(),
+                    "granularity": self.dataset.granularity,
                 },
             )
             for cycle in results:
@@ -150,6 +153,9 @@ class BacktestSuiteRunner:
             "products": list(self.products),
             "run_ids": [item.run_id for item in items],
             "strategies": [item.strategy_id for item in items],
+            "date_range_start": self.dataset.start.isoformat(),
+            "date_range_end": self.dataset.end.isoformat(),
+            "granularity": self.dataset.granularity,
         }
         (suite_dir / "manifest.json").write_text(
             json.dumps(suite_manifest, indent=2, sort_keys=True) + "\n",
