@@ -86,8 +86,11 @@ def list_backtest_run_summaries(*, limit: int = 10) -> list[BacktestRunSummaryRe
             created_at=item.created_at,
             suite_id=item.suite_id,
             dataset_id=item.dataset_id,
+            date_range_start=item.date_range_start,
+            date_range_end=item.date_range_end,
             product_id=item.product_id,
             strategy_id=item.strategy_id,
+            sharpe_ratio=item.sharpe_ratio,
             total_pnl_usdc=item.total_pnl_usdc,
             total_return_pct=item.total_return_pct,
             max_drawdown_usdc=item.max_drawdown_usdc,
@@ -128,6 +131,9 @@ def list_backtest_suite_summaries(*, limit: int = 10) -> list[BacktestSuiteSumma
             suite_id=item.suite_id,
             created_at=item.created_at,
             dataset_id=item.dataset_id,
+            date_range_start=item.date_range_start,
+            date_range_end=item.date_range_end,
+            sharpe_ratio=item.sharpe_ratio,
             products=list(item.products),
             strategies=list(item.strategies),
             run_ids=list(item.run_ids),
@@ -144,6 +150,9 @@ def load_backtest_suite_detail(suite_id: str) -> BacktestSuiteDetailResponse:
         suite_id=summary.suite_id,
         created_at=summary.created_at,
         dataset_id=summary.dataset_id,
+        date_range_start=summary.date_range_start,
+        date_range_end=summary.date_range_end,
+        sharpe_ratio=summary.sharpe_ratio,
         products=list(summary.products),
         strategies=list(summary.strategies),
         run_ids=list(summary.run_ids),
@@ -153,6 +162,9 @@ def load_backtest_suite_detail(suite_id: str) -> BacktestSuiteDetailResponse:
                 rank=item.rank,
                 run_id=item.run_id,
                 strategy_id=item.strategy_id,
+                date_range_start=item.date_range_start,
+                date_range_end=item.date_range_end,
+                sharpe_ratio=item.sharpe_ratio,
                 total_pnl_usdc=item.total_pnl_usdc,
                 total_return_pct=item.total_return_pct,
                 max_drawdown_usdc=item.max_drawdown_usdc,
@@ -180,6 +192,9 @@ def _load_backtest_suite_summary(base_dir: Path, suite_id: str) -> BacktestSuite
         suite_id=suite_id,
         created_at=_coerce_str(manifest.get("created_at")),
         dataset_id=_coerce_str(manifest.get("dataset_id")),
+        date_range_start=_coerce_str(manifest.get("date_range_start")),
+        date_range_end=_coerce_str(manifest.get("date_range_end")),
+        sharpe_ratio=_load_backtest_suite_sharpe(base_dir, suite_id=suite_id),
         products=[
             item
             for item in manifest.get("products", [])
@@ -328,6 +343,9 @@ def _build_run_analysis_response(analysis: RunAnalysis) -> RunAnalysisResponse:
         strategy_id=analysis.strategy_id,
         started_at=analysis.started_at,
         ended_at=analysis.ended_at,
+        date_range_start=analysis.date_range_start,
+        date_range_end=analysis.date_range_end,
+        sharpe_ratio=analysis.sharpe_ratio,
         cycle_count=analysis.cycle_count,
         starting_equity_usdc=analysis.starting_equity_usdc,
         ending_equity_usdc=analysis.ending_equity_usdc,
@@ -374,3 +392,13 @@ def _validate_optional_model(model: Any, payload: Any) -> Any | None:
         return model.model_validate(payload)
     except ValidationError:
         return None
+
+
+def _load_backtest_suite_sharpe(base_dir: Path, *, suite_id: str) -> float | None:
+    try:
+        comparison = compare_backtest_suite(base_dir, suite_id=suite_id)
+    except (FileNotFoundError, OSError, json.JSONDecodeError, ValueError):
+        return None
+    if not comparison.items:
+        return None
+    return comparison.items[0].sharpe_ratio

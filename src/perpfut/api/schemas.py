@@ -94,6 +94,9 @@ class RunAnalysisResponse(BaseModel):
     strategy_id: str | None = None
     started_at: str | None = None
     ended_at: str | None = None
+    date_range_start: str | None = None
+    date_range_end: str | None = None
+    sharpe_ratio: float | None = None
     cycle_count: int
     starting_equity_usdc: float
     ending_equity_usdc: float
@@ -198,8 +201,11 @@ class BacktestRunSummaryResponse(BaseModel):
     created_at: str | None = None
     suite_id: str | None = None
     dataset_id: str | None = None
+    date_range_start: str | None = None
+    date_range_end: str | None = None
     product_id: str | None = None
     strategy_id: str | None = None
+    sharpe_ratio: float | None = None
     total_pnl_usdc: float
     total_return_pct: float
     max_drawdown_usdc: float
@@ -228,6 +234,9 @@ class BacktestSuiteSummaryResponse(BaseModel):
     suite_id: str
     created_at: str | None = None
     dataset_id: str | None = None
+    date_range_start: str | None = None
+    date_range_end: str | None = None
+    sharpe_ratio: float | None = None
     products: list[str] = Field(default_factory=list)
     strategies: list[str] = Field(default_factory=list)
     run_ids: list[str] = Field(default_factory=list)
@@ -244,6 +253,9 @@ class BacktestSuiteComparisonItemResponse(BaseModel):
     rank: int
     run_id: str
     strategy_id: str | None = None
+    date_range_start: str | None = None
+    date_range_end: str | None = None
+    sharpe_ratio: float | None = None
     total_pnl_usdc: float
     total_return_pct: float
     max_drawdown_usdc: float
@@ -259,6 +271,9 @@ class BacktestSuiteDetailResponse(BaseModel):
     suite_id: str
     created_at: str | None = None
     dataset_id: str | None = None
+    date_range_start: str | None = None
+    date_range_end: str | None = None
+    sharpe_ratio: float | None = None
     products: list[str] = Field(default_factory=list)
     strategies: list[str] = Field(default_factory=list)
     run_ids: list[str] = Field(default_factory=list)

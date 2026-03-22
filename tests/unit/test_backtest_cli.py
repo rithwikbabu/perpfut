@@ -66,6 +66,9 @@ def test_backtest_run_main_prints_suite_payload(monkeypatch, tmp_path, capsys) -
         strategy_id: str | None = "momentum"
         started_at: str | None = None
         ended_at: str | None = None
+        date_range_start: str | None = "2026-03-20T00:00:00+00:00"
+        date_range_end: str | None = "2026-03-20T01:00:00+00:00"
+        sharpe_ratio: float | None = 1.23
         cycle_count: int = 1
         starting_equity_usdc: float = 10000.0
         ending_equity_usdc: float = 10100.0
@@ -240,6 +243,9 @@ def test_backtest_list_skips_malformed_suite_manifests(tmp_path, capsys) -> None
             {
                 "suite_id": "suite-valid",
                 "dataset_id": "dataset-1",
+                "date_range_start": None,
+                "date_range_end": None,
+                "sharpe_ratio": None,
                 "run_ids": ["run-1"],
                 "strategies": ["momentum"],
                 "products": ["BTC-PERP-INTX"],
@@ -259,8 +265,11 @@ def test_backtest_list_skips_malformed_suite_manifests(tmp_path, capsys) -> None
         {
             "created_at": None,
             "dataset_id": "dataset-1",
+            "date_range_end": None,
+            "date_range_start": None,
             "products": ["BTC-PERP-INTX"],
             "run_ids": ["run-1"],
+            "sharpe_ratio": None,
             "strategies": ["momentum"],
             "suite_id": "suite-valid",
         }

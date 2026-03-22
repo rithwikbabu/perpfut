@@ -1,4 +1,6 @@
 import json
+import math
+import statistics
 from pathlib import Path
 
 from perpfut.analysis import analyze_run
@@ -193,6 +195,10 @@ def test_analyze_run_supports_backtest_portfolio_artifacts(tmp_path) -> None:
             "created_at": "2026-03-22T02:00:00Z",
             "mode": "backtest",
             "product_id": "MULTI_ASSET",
+            "dataset_id": "dataset-1",
+            "date_range_start": "2026-03-20T00:00:00+00:00",
+            "date_range_end": "2026-03-20T00:03:00+00:00",
+            "granularity": "ONE_MINUTE",
         },
     )
     _write_json(
@@ -212,8 +218,8 @@ def test_analyze_run_supports_backtest_portfolio_artifacts(tmp_path) -> None:
                 "position": {
                     "collateral_usdc": 10000.0,
                     "realized_pnl_usdc": 0.0,
-                    "unrealized_pnl_usdc": 10.0,
-                    "equity_usdc": 10010.0,
+                    "unrealized_pnl_usdc": 100.0,
+                    "equity_usdc": 10100.0,
                     "gross_notional_usdc": 5000.0,
                 },
             },
@@ -221,10 +227,20 @@ def test_analyze_run_supports_backtest_portfolio_artifacts(tmp_path) -> None:
                 "cycle_id": "cycle-0002",
                 "position": {
                     "collateral_usdc": 10000.0,
-                    "realized_pnl_usdc": 15.0,
-                    "unrealized_pnl_usdc": 5.0,
-                    "equity_usdc": 10020.0,
+                    "realized_pnl_usdc": 0.0,
+                    "unrealized_pnl_usdc": 0.0,
+                    "equity_usdc": 10000.0,
                     "gross_notional_usdc": 7000.0,
+                },
+            },
+            {
+                "cycle_id": "cycle-0003",
+                "position": {
+                    "collateral_usdc": 10000.0,
+                    "realized_pnl_usdc": 200.0,
+                    "unrealized_pnl_usdc": 0.0,
+                    "equity_usdc": 10200.0,
+                    "gross_notional_usdc": 6000.0,
                 },
             },
         ],
@@ -241,6 +257,7 @@ def test_analyze_run_supports_backtest_portfolio_artifacts(tmp_path) -> None:
         [
             {"cycle_id": "cycle-0001", "timestamp": "2026-03-22T02:01:00Z", "execution_summary": {"reason_code": "filled"}},
             {"cycle_id": "cycle-0002", "timestamp": "2026-03-22T02:02:00Z", "execution_summary": {"reason_code": "mixed_decisions"}},
+            {"cycle_id": "cycle-0003", "timestamp": "2026-03-22T02:03:00Z", "execution_summary": {"reason_code": "filled"}},
         ],
     )
     _write_json(
@@ -250,21 +267,72 @@ def test_analyze_run_supports_backtest_portfolio_artifacts(tmp_path) -> None:
             "cycle_id": "cycle-0002",
             "position": {
                 "collateral_usdc": 10000.0,
-                "realized_pnl_usdc": 15.0,
-                "unrealized_pnl_usdc": 5.0,
-                "equity_usdc": 10020.0,
-                "gross_notional_usdc": 7000.0,
+                "realized_pnl_usdc": 200.0,
+                "unrealized_pnl_usdc": 0.0,
+                "equity_usdc": 10200.0,
+                "gross_notional_usdc": 6000.0,
             },
         },
     )
 
     analysis = analyze_run(run_dir)
+    expected_returns = [0.01, -100.0 / 10100.0, 200.0 / 10000.0]
+    expected_sharpe = statistics.mean(expected_returns) / statistics.stdev(expected_returns) * math.sqrt(365 * 24 * 60)
 
     assert analysis.mode == "backtest"
-    assert analysis.ending_equity_usdc == 10020.0
-    assert analysis.total_pnl_usdc == 20.0
+    assert analysis.ending_equity_usdc == 10200.0
+    assert analysis.total_pnl_usdc == 200.0
     assert analysis.turnover_usdc == 200.0
     assert analysis.max_abs_exposure_pct == 0.35
+    assert analysis.date_range_start == "2026-03-20T00:00:00+00:00"
+    assert analysis.date_range_end == "2026-03-20T00:03:00+00:00"
+    assert analysis.sharpe_ratio is not None
+    assert round(analysis.sharpe_ratio, 6) == round(expected_sharpe, 6)
+
+
+def test_analyze_run_returns_null_sharpe_for_degenerate_backtest_series(tmp_path) -> None:
+    run_dir = tmp_path / "20260322T020000000000Z_backtest_flat"
+    run_dir.mkdir(parents=True)
+    _write_json(
+        run_dir / "manifest.json",
+        {
+            "run_id": run_dir.name,
+            "created_at": "2026-03-22T02:00:00Z",
+            "mode": "backtest",
+            "product_id": "MULTI_ASSET",
+            "date_range_start": "2026-03-20T00:00:00+00:00",
+            "date_range_end": "2026-03-20T00:03:00+00:00",
+            "granularity": "ONE_MINUTE",
+        },
+    )
+    _write_json(
+        run_dir / "config.json",
+        {
+            "simulation": {
+                "starting_collateral_usdc": 10000.0,
+                "max_leverage": 2.0,
+            }
+        },
+    )
+    _write_ndjson(
+        run_dir / "positions.ndjson",
+        [
+            {"cycle_id": "cycle-0001", "position": {"equity_usdc": 10100.0, "gross_notional_usdc": 1000.0}},
+            {"cycle_id": "cycle-0002", "position": {"equity_usdc": 10201.0, "gross_notional_usdc": 1000.0}},
+        ],
+    )
+    _write_json(
+        run_dir / "state.json",
+        {
+            "run_id": run_dir.name,
+            "cycle_id": "cycle-0002",
+            "position": {"equity_usdc": 10201.0, "gross_notional_usdc": 1000.0},
+        },
+    )
+
+    analysis = analyze_run(run_dir)
+
+    assert analysis.sharpe_ratio is None
 
 
 def test_analyze_run_prepends_configured_start_for_single_snapshot_positions(tmp_path) -> None:

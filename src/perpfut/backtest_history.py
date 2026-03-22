@@ -16,6 +16,9 @@ class BacktestSuiteSummary:
     suite_id: str
     created_at: str | None
     dataset_id: str | None
+    date_range_start: str | None
+    date_range_end: str | None
+    sharpe_ratio: float | None
     products: tuple[str, ...]
     strategies: tuple[str, ...]
     run_ids: tuple[str, ...]
@@ -26,6 +29,9 @@ class BacktestSuiteComparisonEntry:
     rank: int
     run_id: str
     strategy_id: str | None
+    date_range_start: str | None
+    date_range_end: str | None
+    sharpe_ratio: float | None
     total_pnl_usdc: float
     total_return_pct: float
     max_drawdown_usdc: float
@@ -51,8 +57,11 @@ class BacktestRunSummary:
     created_at: str | None
     suite_id: str | None
     dataset_id: str | None
+    date_range_start: str | None
+    date_range_end: str | None
     product_id: str | None
     strategy_id: str | None
+    sharpe_ratio: float | None
     total_pnl_usdc: float
     total_return_pct: float
     max_drawdown_usdc: float
@@ -81,6 +90,9 @@ def list_backtest_suites(base_runs_dir: Path, *, limit: int = 10) -> list[Backte
                 suite_id=suite_dir.name,
                 created_at=_as_str(manifest.get("created_at")),
                 dataset_id=_as_str(manifest.get("dataset_id")),
+                date_range_start=_as_str(manifest.get("date_range_start")),
+                date_range_end=_as_str(manifest.get("date_range_end")),
+                sharpe_ratio=_load_suite_sharpe_ratio(base_runs_dir, suite_id=suite_dir.name),
                 products=tuple(_as_str_list(manifest.get("products"))),
                 strategies=tuple(_as_str_list(manifest.get("strategies"))),
                 run_ids=tuple(_as_str_list(manifest.get("run_ids"))),
@@ -111,8 +123,11 @@ def list_backtest_runs(base_runs_dir: Path, *, limit: int = 10) -> list[Backtest
                 created_at=_as_str(manifest.get("created_at")),
                 suite_id=_as_str(manifest.get("suite_id")),
                 dataset_id=_as_str(manifest.get("dataset_id")),
+                date_range_start=analysis.date_range_start,
+                date_range_end=analysis.date_range_end,
                 product_id=_as_str(manifest.get("product_id")),
                 strategy_id=analysis.strategy_id,
+                sharpe_ratio=analysis.sharpe_ratio,
                 total_pnl_usdc=analysis.total_pnl_usdc,
                 total_return_pct=analysis.total_return_pct,
                 max_drawdown_usdc=analysis.max_drawdown_usdc,
@@ -154,6 +169,9 @@ def compare_backtest_suite(base_runs_dir: Path, *, suite_id: str) -> BacktestSui
                 rank=0,
                 run_id=run_id,
                 strategy_id=_as_str(analysis.get("strategy_id")),
+                date_range_start=_as_str(analysis.get("date_range_start")),
+                date_range_end=_as_str(analysis.get("date_range_end")),
+                sharpe_ratio=_as_float(analysis.get("sharpe_ratio")),
                 total_pnl_usdc=float(analysis.get("total_pnl_usdc") or 0.0),
                 total_return_pct=float(analysis.get("total_return_pct") or 0.0),
                 max_drawdown_usdc=float(analysis.get("max_drawdown_usdc") or 0.0),
@@ -224,3 +242,19 @@ def _coerce_int_dict(value: Any) -> dict[str, int]:
         if isinstance(key, str) and isinstance(item, int):
             items[key] = item
     return items
+
+
+def _load_suite_sharpe_ratio(base_runs_dir: Path, *, suite_id: str) -> float | None:
+    try:
+        comparison = compare_backtest_suite(base_runs_dir, suite_id=suite_id)
+    except (FileNotFoundError, OSError, json.JSONDecodeError, ValueError):
+        return None
+    if not comparison.items:
+        return None
+    return comparison.items[0].sharpe_ratio
+
+
+def _as_float(value: Any) -> float | None:
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
