@@ -60,6 +60,25 @@ describe("BacktestsShell", () => {
 
   it("renders the launch console, suite ranking, and completed run table", async () => {
     mockedFetchJson.mockImplementation(async (path: string) => {
+      if (path === "/datasets") {
+        return {
+          items: [
+            {
+              datasetId: "dataset-1",
+              createdAt: "2026-03-22T05:00:00Z",
+              fingerprint: "fingerprint-123456",
+              source: "coinbase",
+              version: "1",
+              products: ["BTC-PERP-INTX", "ETH-PERP-INTX"],
+              start: "2026-03-20T12:00:00+00:00",
+              end: "2026-03-21T12:00:00+00:00",
+              granularity: "ONE_MINUTE",
+              candleCounts: { "BTC-PERP-INTX": 1440, "ETH-PERP-INTX": 1440 },
+            },
+          ],
+          count: 1,
+        };
+      }
       if (path === "/backtests") {
         return {
           items: [
@@ -216,6 +235,10 @@ describe("BacktestsShell", () => {
     renderBacktestsShell();
 
     expect(await screen.findByText("Start a backtest suite")).toBeInTheDocument();
+    expect(screen.getByText("Cached dataset registry")).toBeInTheDocument();
+    expect(screen.getAllByText("dataset-1").length).toBeGreaterThan(0);
+    expect(screen.queryByText("No cached datasets yet.")).not.toBeInTheDocument();
+    expect(screen.getByText("selected")).toBeInTheDocument();
     expect(screen.getByText("Selected suite ranking")).toBeInTheDocument();
     expect(screen.getByText("Completed backtest runs")).toBeInTheDocument();
     expect((await screen.findAllByText("Completed strategy 1 of 2: momentum")).length).toBeGreaterThan(0);
@@ -235,11 +258,30 @@ describe("BacktestsShell", () => {
     renderBacktestsShell();
 
     expect(await screen.findByText("Backtest API unavailable")).toBeInTheDocument();
-    expect(screen.getByText("backtest api unavailable")).toBeInTheDocument();
+    expect(screen.getAllByText("backtest api unavailable").length).toBeGreaterThan(0);
   });
 
   it("switches leaderboard data when a different suite is selected", async () => {
     mockedFetchJson.mockImplementation(async (path: string) => {
+      if (path === "/datasets") {
+        return {
+          items: [
+            {
+              datasetId: "dataset-1",
+              createdAt: "2026-03-22T06:00:00Z",
+              fingerprint: "fingerprint-123456",
+              source: "coinbase",
+              version: "1",
+              products: ["BTC-PERP-INTX"],
+              start: "2026-03-20T12:00:00+00:00",
+              end: "2026-03-21T12:00:00+00:00",
+              granularity: "ONE_MINUTE",
+              candleCounts: { "BTC-PERP-INTX": 1440 },
+            },
+          ],
+          count: 1,
+        };
+      }
       if (path === "/backtests") {
         return { items: [], count: 0, active_job: null };
       }
@@ -340,6 +382,9 @@ describe("BacktestsShell", () => {
 
   it("shows a validation warning when a datetime input is cleared", async () => {
     mockedFetchJson.mockImplementation(async (path: string) => {
+      if (path === "/datasets") {
+        return { items: [], count: 0 };
+      }
       if (path === "/backtests") {
         return { items: [], count: 0, active_job: null };
       }
@@ -361,7 +406,7 @@ describe("BacktestsShell", () => {
 
   it("renders console loading states while list endpoints are pending", async () => {
     mockedFetchJson.mockImplementation(async (path: string) => {
-      if (path === "/backtests" || path === "/backtest-suites") {
+      if (path === "/backtests" || path === "/backtest-suites" || path === "/datasets") {
         return new Promise(() => {});
       }
       throw new Error(`unexpected path ${path}`);
@@ -369,6 +414,7 @@ describe("BacktestsShell", () => {
 
     renderBacktestsShell();
 
+    expect((await screen.findAllByText("Loading cached datasets.")).length).toBeGreaterThan(0);
     expect(await screen.findByText("Loading completed backtest suites.")).toBeInTheDocument();
     expect(screen.getByText("Loading completed backtest runs.")).toBeInTheDocument();
     expect(screen.getByText("Select a suite to rank strategy candidates.")).toBeInTheDocument();
@@ -376,6 +422,9 @@ describe("BacktestsShell", () => {
 
   it("renders console empty states when there are no suites or runs", async () => {
     mockedFetchJson.mockImplementation(async (path: string) => {
+      if (path === "/datasets") {
+        return { items: [], count: 0 };
+      }
       if (path === "/backtests") {
         return { items: [], count: 0, active_job: null };
       }
@@ -387,6 +436,7 @@ describe("BacktestsShell", () => {
 
     renderBacktestsShell();
 
+    expect((await screen.findAllByText("No cached datasets yet.")).length).toBeGreaterThan(0);
     expect(await screen.findByText("No completed backtest suites yet.")).toBeInTheDocument();
     expect(screen.getByText("Select a suite to rank strategy candidates.")).toBeInTheDocument();
     expect(screen.getByText("No completed backtest runs yet.")).toBeInTheDocument();
@@ -394,6 +444,9 @@ describe("BacktestsShell", () => {
 
   it("renders control feedback when the launch request is rejected", async () => {
     mockedFetchJson.mockImplementation(async (path: string) => {
+      if (path === "/datasets") {
+        return { items: [], count: 0 };
+      }
       if (path === "/backtests") {
         return { items: [], count: 0, active_job: null };
       }
@@ -415,6 +468,9 @@ describe("BacktestsShell", () => {
 
   it("renders the latest failed job when no backtest is currently active", async () => {
     mockedFetchJson.mockImplementation(async (path: string) => {
+      if (path === "/datasets") {
+        return { items: [], count: 0 };
+      }
       if (path === "/backtests") {
         return {
           items: [],
@@ -460,6 +516,27 @@ describe("BacktestsShell", () => {
 
     expect(await screen.findByText("FAILED · job-failed")).toBeInTheDocument();
     expect(screen.getByText("backtest run failed: boom")).toBeInTheDocument();
+  });
+
+  it("renders an isolated dataset error state when only the dataset registry fails", async () => {
+    mockedFetchJson.mockImplementation(async (path: string) => {
+      if (path === "/datasets") {
+        throw new ApiError("dataset registry unavailable", 500);
+      }
+      if (path === "/backtests") {
+        return { items: [], count: 0, active_job: null, latest_job: null };
+      }
+      if (path === "/backtest-suites") {
+        return { items: [], count: 0, active_job: null, latest_job: null };
+      }
+      throw new Error(`unexpected path ${path}`);
+    });
+
+    renderBacktestsShell();
+
+    expect((await screen.findAllByText("dataset registry unavailable")).length).toBeGreaterThan(0);
+    expect(screen.queryByText("No cached datasets yet.")).not.toBeInTheDocument();
+    expect(screen.getByText("No completed backtest suites yet.")).toBeInTheDocument();
   });
 });
 
