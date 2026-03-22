@@ -27,6 +27,10 @@ from .reconciliation import reconcile_intx_state
 
 
 API_BASE_URL = "https://api.coinbase.com/api/v3/brokerage"
+MAX_CANDLES_PER_REQUEST = 350
+GRANULARITY_SECONDS = {
+    "ONE_MINUTE": 60,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,6 +119,43 @@ class CoinbasePublicClient:
         )
         response.raise_for_status()
         return parse_candles(response.json(), product_id=product_id)
+
+    def fetch_historical_candles(
+        self,
+        product_id: str,
+        *,
+        start: datetime,
+        end: datetime,
+        granularity: str = "ONE_MINUTE",
+    ) -> list[Candle]:
+        granularity_seconds = GRANULARITY_SECONDS.get(granularity)
+        if granularity_seconds is None:
+            raise ValueError(f"unsupported candle granularity: {granularity}")
+        if end <= start:
+            raise ValueError("historical candle end must be after start")
+
+        candles_by_start: dict[datetime, Candle] = {}
+        chunk_span = timedelta(seconds=granularity_seconds * MAX_CANDLES_PER_REQUEST)
+        cursor = start
+        while cursor < end:
+            chunk_end = min(end, cursor + chunk_span)
+            response = self._client.get(
+                f"/market/products/{product_id}/candles",
+                params={
+                    "start": str(int(cursor.timestamp())),
+                    "end": str(int(chunk_end.timestamp())),
+                    "granularity": granularity,
+                    "limit": MAX_CANDLES_PER_REQUEST,
+                },
+            )
+            response.raise_for_status()
+            payload = response.json()
+            raw_candles = payload.get("candles")
+            if isinstance(raw_candles, list) and raw_candles:
+                for candle in parse_candles(payload, product_id=product_id):
+                    candles_by_start[candle.start] = candle
+            cursor = chunk_end
+        return sorted(candles_by_start.values(), key=lambda candle: candle.start)
 
     def fetch_ticker(self, product_id: str) -> TickerSnapshot:
         response = self._client.get(
