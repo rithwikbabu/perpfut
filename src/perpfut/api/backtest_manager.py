@@ -33,10 +33,15 @@ class BacktestJobStateError(RuntimeError):
 class BacktestJobMetadata:
     job_id: str
     status: str
+    phase: str | None
+    phase_message: str | None
     pid: int | None
     created_at: str
     started_at: str | None
     finished_at: str | None
+    total_runs: int | None
+    completed_runs: int | None
+    last_heartbeat_at: str | None
     suite_id: str | None
     dataset_id: str | None
     run_ids: tuple[str, ...]
@@ -96,7 +101,7 @@ class BacktestJobManager:
                 process = subprocess.Popen(
                     command,
                     cwd=Path.cwd(),
-                    env=self._build_env(),
+                    env=self._build_env(job_id=job_id),
                     stdout=log_handle,
                     stderr=subprocess.STDOUT,
                     stdin=subprocess.DEVNULL,
@@ -110,10 +115,15 @@ class BacktestJobManager:
             metadata = BacktestJobMetadata(
                 job_id=job_id,
                 status="running",
+                phase="queued",
+                phase_message="Waiting for backtest worker heartbeat.",
                 pid=process.pid,
                 created_at=created_at.isoformat(),
                 started_at=created_at.isoformat(),
                 finished_at=None,
+                total_runs=len(request.strategy_ids),
+                completed_runs=0,
+                last_heartbeat_at=created_at.isoformat(),
                 suite_id=None,
                 dataset_id=None,
                 run_ids=(),
@@ -161,9 +171,11 @@ class BacktestJobManager:
             command.extend(["--slippage-bps", str(request.slippage_bps)])
         return command
 
-    def _build_env(self) -> dict[str, str]:
+    def _build_env(self, *, job_id: str) -> dict[str, str]:
         env = os.environ.copy()
         env["RUNS_DIR"] = str(self.runs_dir)
+        env["PERPFUT_BACKTEST_ACTIVE_METADATA_PATH"] = str(self.active_metadata_path)
+        env["PERPFUT_BACKTEST_JOB_METADATA_PATH"] = str(self.jobs_dir / f"{job_id}.json")
         return env
 
     def _active_status_locked(self) -> BacktestJobStatusResponse | None:
@@ -196,10 +208,15 @@ class BacktestJobManager:
             return BacktestJobMetadata(
                 job_id=metadata.job_id,
                 status="succeeded",
+                phase="succeeded",
+                phase_message="Backtest suite completed successfully.",
                 pid=None,
                 created_at=metadata.created_at,
                 started_at=metadata.started_at,
                 finished_at=finished_at,
+                total_runs=metadata.total_runs,
+                completed_runs=metadata.completed_runs,
+                last_heartbeat_at=metadata.last_heartbeat_at,
                 suite_id=_as_str(payload.get("suite_id")),
                 dataset_id=_as_str(payload.get("dataset_id")),
                 run_ids=tuple(_as_str_list(payload.get("run_ids"))),
@@ -210,10 +227,15 @@ class BacktestJobManager:
         return BacktestJobMetadata(
             job_id=metadata.job_id,
             status="failed",
+            phase="failed",
+            phase_message="Backtest suite failed.",
             pid=None,
             created_at=metadata.created_at,
             started_at=metadata.started_at,
             finished_at=finished_at,
+            total_runs=metadata.total_runs,
+            completed_runs=metadata.completed_runs,
+            last_heartbeat_at=metadata.last_heartbeat_at,
             suite_id=None,
             dataset_id=None,
             run_ids=(),
@@ -279,10 +301,15 @@ class BacktestJobManager:
             return BacktestJobMetadata(
                 job_id=str(payload["job_id"]),
                 status=str(payload["status"]),
+                phase=_as_str(payload.get("phase")),
+                phase_message=_as_str(payload.get("phase_message")),
                 pid=int(payload["pid"]) if payload.get("pid") is not None else None,
                 created_at=str(payload["created_at"]),
                 started_at=_as_str(payload.get("started_at")),
                 finished_at=_as_str(payload.get("finished_at")),
+                total_runs=_as_int(payload.get("total_runs")),
+                completed_runs=_as_int(payload.get("completed_runs")),
+                last_heartbeat_at=_as_str(payload.get("last_heartbeat_at")),
                 suite_id=_as_str(payload.get("suite_id")),
                 dataset_id=_as_str(payload.get("dataset_id")),
                 run_ids=tuple(_as_str_list(payload.get("run_ids"))),
@@ -381,13 +408,36 @@ class BacktestJobManager:
             raise BacktestJobStateError("failed to clear stale backtest control lock") from exc
 
     def _to_status(self, metadata: BacktestJobMetadata) -> BacktestJobStatusResponse:
+        elapsed_seconds = _compute_elapsed_seconds(
+            started_at=metadata.started_at,
+            finished_at=metadata.finished_at,
+        )
+        progress_pct = _compute_progress_pct(
+            total_runs=metadata.total_runs,
+            completed_runs=metadata.completed_runs,
+        )
+        eta_seconds = _compute_eta_seconds(
+            status=metadata.status,
+            phase=metadata.phase,
+            elapsed_seconds=elapsed_seconds,
+            total_runs=metadata.total_runs,
+            completed_runs=metadata.completed_runs,
+        )
         return BacktestJobStatusResponse(
             job_id=metadata.job_id,
             status=metadata.status,
+            phase=metadata.phase,
+            phase_message=metadata.phase_message,
             pid=metadata.pid,
             created_at=metadata.created_at,
             started_at=metadata.started_at,
             finished_at=metadata.finished_at,
+            total_runs=metadata.total_runs,
+            completed_runs=metadata.completed_runs,
+            progress_pct=progress_pct,
+            elapsed_seconds=elapsed_seconds,
+            eta_seconds=eta_seconds,
+            last_heartbeat_at=metadata.last_heartbeat_at,
             suite_id=metadata.suite_id,
             dataset_id=metadata.dataset_id,
             run_ids=list(metadata.run_ids),
@@ -411,5 +461,57 @@ def _as_str_list(value: object) -> list[str]:
     return [item for item in value if isinstance(item, str)]
 
 
+def _as_int(value: object) -> int | None:
+    return value if isinstance(value, int) else None
+
+
 def _coerce_dict(value: object) -> dict[str, object]:
     return value if isinstance(value, dict) else {}
+
+
+def _compute_elapsed_seconds(*, started_at: str | None, finished_at: str | None) -> float | None:
+    start = _parse_timestamp(started_at)
+    if start is None:
+        return None
+    end = _parse_timestamp(finished_at) or datetime.now(timezone.utc)
+    return max((end - start).total_seconds(), 0.0)
+
+
+def _compute_progress_pct(*, total_runs: int | None, completed_runs: int | None) -> float | None:
+    if total_runs is None or total_runs <= 0:
+        return None
+    completed = min(max(completed_runs or 0, 0), total_runs)
+    return completed / total_runs
+
+
+def _compute_eta_seconds(
+    *,
+    status: str,
+    phase: str | None,
+    elapsed_seconds: float | None,
+    total_runs: int | None,
+    completed_runs: int | None,
+) -> float | None:
+    if status != "running":
+        return 0.0 if elapsed_seconds is not None else None
+    if phase not in {"running_suite", "finalizing"}:
+        return None
+    if elapsed_seconds is None or total_runs is None or total_runs <= 0:
+        return None
+    completed = min(max(completed_runs or 0, 0), total_runs)
+    if completed <= 0:
+        return None
+    if completed >= total_runs:
+        return 0.0
+    average_seconds_per_run = elapsed_seconds / completed
+    remaining_runs = total_runs - completed
+    return max(average_seconds_per_run * remaining_runs, 0.0)
+
+
+def _parse_timestamp(value: str | None) -> datetime | None:
+    if value is None:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None

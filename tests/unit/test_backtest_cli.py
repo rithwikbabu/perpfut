@@ -101,7 +101,7 @@ def test_backtest_run_main_prints_suite_payload(monkeypatch, tmp_path, capsys) -
                 "products": products,
             }
 
-        def run_suite(self, *, strategy_ids):
+        def run_suite(self, *, strategy_ids, progress_callback=None):
             captured["strategy_ids"] = strategy_ids
             return fake_suite
 
