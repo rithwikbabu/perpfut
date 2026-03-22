@@ -35,6 +35,24 @@ def test_backtest_run_parser_accepts_repeated_products_and_strategies() -> None:
     assert args.strategy_ids == ["momentum", "mean_reversion"]
 
 
+def test_backtest_run_parser_accepts_dataset_id_without_products() -> None:
+    parser = build_parser()
+
+    args = parser.parse_args(
+        [
+            "backtest",
+            "run",
+            "--dataset-id",
+            "dataset-1",
+            "--strategy-id",
+            "momentum",
+        ]
+    )
+
+    assert args.dataset_id == "dataset-1"
+    assert args.product_ids is None
+
+
 def test_backtest_run_main_prints_suite_payload(monkeypatch, tmp_path, capsys) -> None:
     captured = {}
 
@@ -135,6 +153,84 @@ def test_backtest_run_main_prints_suite_payload(monkeypatch, tmp_path, capsys) -
     assert captured["dataset"]["products"] == ["BTC-PERP-INTX"]
 
 
+def test_backtest_run_main_can_load_cached_dataset_by_id(monkeypatch, tmp_path, capsys) -> None:
+    captured = {}
+
+    class FakeBuilder:
+        def __init__(self, *, client, base_runs_dir):
+            captured["builder"] = {"base_runs_dir": str(base_runs_dir), "client": client.__class__.__name__}
+
+        def load_dataset(self, dataset_id):
+            captured["dataset_id"] = dataset_id
+            return type("Dataset", (), {"dataset_id": dataset_id, "products": ("BTC-PERP-INTX", "ETH-PERP-INTX")})()
+
+    @dataclass
+    class FakeAnalysis:
+        run_id: str = "run-1"
+        mode: str = "backtest"
+        product_id: str | None = "MULTI_ASSET"
+        strategy_id: str | None = "momentum"
+        started_at: str | None = None
+        ended_at: str | None = None
+        date_range_start: str | None = None
+        date_range_end: str | None = None
+        sharpe_ratio: float | None = None
+        cycle_count: int = 1
+        starting_equity_usdc: float = 10000.0
+        ending_equity_usdc: float = 10100.0
+        realized_pnl_usdc: float = 50.0
+        unrealized_pnl_usdc: float = 50.0
+        total_pnl_usdc: float = 100.0
+        total_return_pct: float = 0.01
+        max_drawdown_usdc: float = 10.0
+        max_drawdown_pct: float = 0.001
+        turnover_usdc: float = 1000.0
+        fill_count: int = 1
+        trade_count: int = 1
+        avg_abs_exposure_pct: float = 0.1
+        max_abs_exposure_pct: float = 0.2
+        decision_counts: dict[str, int] = field(default_factory=lambda: {"filled": 1})
+        equity_series: tuple = ()
+        drawdown_series: tuple = ()
+        exposure_series: tuple = ()
+
+    fake_item = SimpleNamespace(run_id="run-1", strategy_id="momentum", analysis=FakeAnalysis())
+    fake_suite = SimpleNamespace(suite_id="suite-1", dataset_id="dataset-1", run_ids=("run-1",), items=(fake_item,))
+
+    class FakeSuiteRunner:
+        def __init__(self, *, base_runs_dir, dataset, config, products):
+            captured["suite_runner"] = {
+                "dataset_id": dataset.dataset_id,
+                "products": products,
+            }
+
+        def run_suite(self, *, strategy_ids, progress_callback=None):
+            captured["strategy_ids"] = strategy_ids
+            return fake_suite
+
+    monkeypatch.setattr("perpfut.cli.HistoricalDatasetBuilder", FakeBuilder)
+    monkeypatch.setattr("perpfut.cli.BacktestSuiteRunner", FakeSuiteRunner)
+
+    exit_code = main(
+        [
+            "backtest",
+            "run",
+            "--runs-dir",
+            str(tmp_path),
+            "--dataset-id",
+            "dataset-1",
+            "--strategy-id",
+            "momentum",
+        ]
+    )
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["dataset_id"] == "dataset-1"
+    assert captured["dataset_id"] == "dataset-1"
+    assert captured["suite_runner"]["products"] == ["BTC-PERP-INTX", "ETH-PERP-INTX"]
+
+
 def test_backtest_show_and_compare_commands_read_artifacts(tmp_path, capsys) -> None:
     suites_dir = tmp_path / "backtests" / "suites" / "suite-1"
     runs_dir = tmp_path / "backtests" / "runs" / "run-1"
@@ -189,6 +285,75 @@ def test_backtest_show_and_compare_commands_read_artifacts(tmp_path, capsys) -> 
     assert show_payload["analysis"]["run_id"] == "run-1"
     assert compare_payload["suite_id"] == "suite-1"
     assert compare_payload["items"][0]["run_id"] == "run-1"
+
+
+def test_dataset_commands_build_list_and_show(monkeypatch, tmp_path, capsys) -> None:
+    captured = {}
+
+    class FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+    class FakeBuilder:
+        def __init__(self, *, client, base_runs_dir):
+            captured["base_runs_dir"] = str(base_runs_dir)
+
+        def build_dataset(self, *, products, start, end, granularity):
+            captured["build"] = {
+                "products": products,
+                "start": start.isoformat(),
+                "end": end.isoformat(),
+                "granularity": granularity,
+            }
+            return type("Dataset", (), {"dataset_id": "dataset-1"})()
+
+    @dataclass
+    class FakeDatasetSummary:
+        dataset_id: str = "dataset-1"
+        created_at: str = "2026-03-20T00:00:00+00:00"
+        fingerprint: str = "fp-1"
+        source: str = "coinbase"
+        version: str = "1"
+        products: tuple[str, ...] = ("BTC-PERP-INTX",)
+        start: str = "2026-03-20T00:00:00+00:00"
+        end: str = "2026-03-21T00:00:00+00:00"
+        granularity: str = "ONE_MINUTE"
+        candle_counts: dict[str, int] = field(default_factory=lambda: {"BTC-PERP-INTX": 1440})
+
+    summary = FakeDatasetSummary()
+
+    monkeypatch.setattr("perpfut.cli.CoinbasePublicClient", FakeClient)
+    monkeypatch.setattr("perpfut.cli.HistoricalDatasetBuilder", FakeBuilder)
+    monkeypatch.setattr("perpfut.cli.load_dataset_summary", lambda *_args, **_kwargs: summary)
+    monkeypatch.setattr("perpfut.cli.list_dataset_summaries", lambda *_args, **_kwargs: [summary])
+
+    assert main(
+        [
+            "dataset",
+            "build",
+            "--runs-dir",
+            str(tmp_path),
+            "--product-id",
+            "BTC-PERP-INTX",
+            "--start",
+            "2026-03-20T00:00:00+00:00",
+            "--end",
+            "2026-03-21T00:00:00+00:00",
+        ]
+    ) == 0
+    build_payload = json.loads(capsys.readouterr().out)
+    assert build_payload["dataset_id"] == "dataset-1"
+
+    assert main(["dataset", "list", "--runs-dir", str(tmp_path)]) == 0
+    list_payload = json.loads(capsys.readouterr().out)
+    assert list_payload[0]["fingerprint"] == "fp-1"
+
+    assert main(["dataset", "show", "--runs-dir", str(tmp_path), "--dataset-id", "dataset-1"]) == 0
+    show_payload = json.loads(capsys.readouterr().out)
+    assert show_payload["dataset_id"] == "dataset-1"
 
 
 def test_backtest_run_rejects_invalid_strategy_before_dataset_build(monkeypatch, tmp_path) -> None:

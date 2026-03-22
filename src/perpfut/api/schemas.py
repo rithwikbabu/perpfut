@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class HealthResponse(BaseModel):
@@ -155,10 +155,11 @@ class PaperRunStatusResponse(BaseModel):
 
 
 class BacktestRunRequest(BaseModel):
-    product_ids: list[str] = Field(alias="productIds", min_length=1)
+    dataset_id: str | None = Field(alias="datasetId", default=None)
+    product_ids: list[str] | None = Field(alias="productIds", default=None)
     strategy_ids: list[str] = Field(alias="strategyIds", min_length=1)
-    start: str
-    end: str
+    start: str | None = None
+    end: str | None = None
     granularity: str = "ONE_MINUTE"
     lookback_candles: int | None = Field(alias="lookbackCandles", default=None, ge=1)
     signal_scale: float | None = Field(alias="signalScale", default=None)
@@ -171,6 +172,49 @@ class BacktestRunRequest(BaseModel):
     model_config = {
         "populate_by_name": True,
     }
+
+    @model_validator(mode="after")
+    def _validate_dataset_or_range(self) -> "BacktestRunRequest":
+        if self.dataset_id:
+            return self
+        if not self.product_ids or self.start is None or self.end is None:
+            raise ValueError(
+                "backtest runs require either datasetId or productIds with start/end"
+            )
+        return self
+
+
+class DatasetBuildRequest(BaseModel):
+    product_ids: list[str] = Field(alias="productIds", min_length=1)
+    start: str
+    end: str
+    granularity: str = "ONE_MINUTE"
+
+    model_config = {
+        "populate_by_name": True,
+    }
+
+
+class DatasetSummaryResponse(BaseModel):
+    dataset_id: str = Field(alias="datasetId")
+    created_at: str = Field(alias="createdAt")
+    fingerprint: str
+    source: str
+    version: str
+    products: list[str]
+    start: str
+    end: str
+    granularity: str
+    candle_counts: dict[str, int] = Field(alias="candleCounts")
+
+    model_config = {
+        "populate_by_name": True,
+    }
+
+
+class DatasetsListResponse(BaseModel):
+    items: list[DatasetSummaryResponse]
+    count: int
 
 
 class BacktestJobStatusResponse(BaseModel):

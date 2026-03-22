@@ -14,6 +14,7 @@ from ..backtest_history import (
     list_backtest_suites,
     load_backtest_run,
 )
+from ..backtest_data import list_dataset_summaries, load_dataset_summary
 from pydantic import ValidationError
 from .schemas import (
     AnalysisSeriesPointResponse,
@@ -23,6 +24,8 @@ from .schemas import (
     BacktestSuiteDetailResponse,
     BacktestSuiteSummaryResponse,
     DashboardOverviewResponse,
+    DatasetSummaryResponse,
+    DatasetsListResponse,
     ExecutionSummaryResponse,
     LatestDecisionResponse,
     NoTradeReasonResponse,
@@ -47,6 +50,41 @@ def get_runs_dir() -> Path:
 def list_run_summaries(*, mode: str | None = None, limit: int = 10) -> RunsListResponse:
     items = _collect_run_summaries(get_runs_dir(), mode=mode, limit=limit)
     return RunsListResponse(items=items, count=len(items))
+
+
+def list_dataset_summary_responses(*, limit: int = 10) -> DatasetsListResponse:
+    items = [
+        DatasetSummaryResponse(
+            datasetId=item.dataset_id,
+            createdAt=item.created_at,
+            fingerprint=item.fingerprint,
+            source=item.source,
+            version=item.version,
+            products=list(item.products),
+            start=item.start,
+            end=item.end,
+            granularity=item.granularity,
+            candleCounts=item.candle_counts,
+        )
+        for item in list_dataset_summaries(get_runs_dir(), limit=limit)
+    ]
+    return DatasetsListResponse(items=items, count=len(items))
+
+
+def load_dataset_summary_response(dataset_id: str) -> DatasetSummaryResponse:
+    item = load_dataset_summary(get_runs_dir(), dataset_id=dataset_id)
+    return DatasetSummaryResponse(
+        datasetId=item.dataset_id,
+        createdAt=item.created_at,
+        fingerprint=item.fingerprint,
+        source=item.source,
+        version=item.version,
+        products=list(item.products),
+        start=item.start,
+        end=item.end,
+        granularity=item.granularity,
+        candleCounts=item.candle_counts,
+    )
 
 
 def build_dashboard_overview(*, mode: str, limit: int = 10) -> DashboardOverviewResponse:
