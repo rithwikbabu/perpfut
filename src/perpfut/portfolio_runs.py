@@ -83,6 +83,13 @@ class PortfolioRunResult:
     sleeve_run_ids: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class ResolvedStrategySleeve:
+    run_id: str
+    run_dir: Path
+    analysis: StrategySleeveAnalysis
+
+
 def run_portfolio_research(
     *,
     base_runs_dir: Path,
@@ -101,23 +108,23 @@ def run_portfolio_research(
     sleeve_run_ids: list[str] = []
     sleeve_analyses: list[StrategySleeveAnalysis] = []
     for strategy_instance in strategy_instances:
-        sleeve_run_id, sleeve_analysis = _load_or_run_sleeve(
+        sleeve = load_or_run_strategy_sleeve_research(
             base_runs_dir=base_runs_dir,
             dataset=dataset,
             config=config,
             strategy_instance=strategy_instance,
         )
-        sleeve_run_ids.append(sleeve_run_id)
-        sleeve_analyses.append(sleeve_analysis)
+        sleeve_run_ids.append(sleeve.run_id)
+        sleeve_analyses.append(sleeve.analysis)
         sleeve_payloads.append(
             {
-                "strategy_instance_id": sleeve_analysis.strategy_instance_id,
-                "strategy_id": sleeve_analysis.strategy_id,
-                "dataset_id": sleeve_analysis.dataset_id,
-                "config_fingerprint": sleeve_analysis.config_fingerprint,
+                "strategy_instance_id": sleeve.analysis.strategy_instance_id,
+                "strategy_id": sleeve.analysis.strategy_id,
+                "dataset_id": sleeve.analysis.dataset_id,
+                "config_fingerprint": sleeve.analysis.config_fingerprint,
                 "daily_returns": [
                     {"label": point.label, "value": point.value}
-                    for point in sleeve_analysis.daily_returns
+                    for point in sleeve.analysis.daily_returns
                 ],
             }
         )
@@ -365,13 +372,13 @@ def load_portfolio_run_detail(run_dir: Path) -> dict[str, object]:
     }
 
 
-def _load_or_run_sleeve(
+def load_or_run_strategy_sleeve_research(
     *,
     base_runs_dir: Path,
     dataset: HistoricalDataset,
     config: AppConfig,
     strategy_instance: StrategyInstanceSpec,
-) -> tuple[str, StrategySleeveAnalysis]:
+) -> ResolvedStrategySleeve:
     config_fingerprint = compute_strategy_instance_fingerprint(
         config=config,
         strategy_instance=strategy_instance,
@@ -382,7 +389,11 @@ def _load_or_run_sleeve(
         config_fingerprint=config_fingerprint,
     )
     if cached_run_dir is not None:
-        return cached_run_dir.name, _coerce_sleeve_analysis(load_strategy_sleeve_analysis(cached_run_dir))
+        return ResolvedStrategySleeve(
+            run_id=cached_run_dir.name,
+            run_dir=cached_run_dir,
+            analysis=_coerce_sleeve_analysis(load_strategy_sleeve_analysis(cached_run_dir)),
+        )
 
     result = run_strategy_sleeve(
         base_runs_dir=base_runs_dir,
@@ -390,7 +401,11 @@ def _load_or_run_sleeve(
         config=config,
         strategy_instance=strategy_instance,
     )
-    return result.run_id, result.sleeve_analysis
+    return ResolvedStrategySleeve(
+        run_id=result.run_id,
+        run_dir=result.run_dir,
+        analysis=result.sleeve_analysis,
+    )
 
 
 def _find_cached_sleeve_run(

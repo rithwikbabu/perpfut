@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Sequence
 from datetime import datetime
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query, status
 
@@ -30,10 +33,11 @@ from ..repository import (
     load_strategy_sleeve_comparison,
     load_strategy_sleeve_detail,
 )
+from ..strategy_catalog import build_strategy_catalog
 from ...backtest_data import HistoricalDatasetBuilder
 from ...exchange_coinbase import CoinbasePublicClient
 from ...portfolio_optimizer import PortfolioOptimizationConfig
-from ...portfolio_runs import run_portfolio_research
+from ...portfolio_runs import load_or_run_strategy_sleeve_research, run_portfolio_research
 from ...strategy_instances import parse_strategy_instance_specs
 from ..schemas import (
     ArtifactListResponse,
@@ -52,14 +56,22 @@ from ..schemas import (
     PortfolioRunRequest,
     PortfolioRunsListResponse,
     RunAnalysisResponse,
+    SleeveLaunchRequest,
     StrategySleeveComparisonResponse,
+    StrategyCatalogResponse,
     StrategySleeveDetailResponse,
+    StrategySleeveSummaryResponse,
     StrategySleevesListResponse,
 )
 from ...config import AppConfig
 
 
 router = APIRouter(tags=["backtests"])
+
+
+@router.get("/strategy-catalog", response_model=StrategyCatalogResponse)
+def read_strategy_catalog() -> StrategyCatalogResponse:
+    return build_strategy_catalog(AppConfig.from_env())
 
 
 @router.get("/datasets", response_model=DatasetsListResponse)
@@ -194,6 +206,65 @@ def read_portfolio_runs(
         return list_portfolio_run_summaries(limit=limit, dataset_id=dataset_id)
     except (OSError, ValueError, FileNotFoundError) as exc:
         raise HTTPException(status_code=500, detail="invalid portfolio run artifacts") from exc
+
+
+@router.post("/sleeves", response_model=StrategySleevesListResponse, status_code=status.HTTP_201_CREATED)
+def launch_strategy_sleeves(request: SleeveLaunchRequest) -> StrategySleevesListResponse:
+    config = AppConfig.from_env()
+    try:
+        strategy_instances = parse_strategy_instance_specs(
+            [
+                {
+                    "strategy_instance_id": item.strategy_instance_id,
+                    "strategy_id": item.strategy_id,
+                    "universe": item.universe,
+                    "strategy_params": item.strategy_params,
+                    "risk_overrides": item.risk_overrides,
+                }
+                for item in request.strategy_instances
+            ],
+            source="api sleeve request",
+        )
+        with CoinbasePublicClient() as client:
+            dataset = HistoricalDatasetBuilder(client=client, base_runs_dir=config.runtime.runs_dir).load_dataset(
+                request.dataset_id
+            )
+        sleeves = [
+            load_or_run_strategy_sleeve_research(
+                base_runs_dir=config.runtime.runs_dir,
+                dataset=dataset,
+                config=config,
+                strategy_instance=strategy_instance,
+            )
+            for strategy_instance in strategy_instances
+        ]
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail="failed to write strategy sleeve artifacts") from exc
+    return StrategySleevesListResponse(
+        items=[
+            StrategySleeveSummaryResponse(
+                run_id=sleeve.run_id,
+                created_at=_load_manifest_created_at(sleeve.run_dir),
+                dataset_id=sleeve.analysis.dataset_id,
+                strategy_instance_id=sleeve.analysis.strategy_instance_id,
+                strategy_id=sleeve.analysis.strategy_id,
+                date_range_start=sleeve.analysis.date_range_start,
+                date_range_end=sleeve.analysis.date_range_end,
+                total_pnl_usdc=sleeve.analysis.total_pnl_usdc,
+                total_return_pct=sleeve.analysis.total_return_pct,
+                max_drawdown_usdc=sleeve.analysis.max_drawdown_usdc,
+                max_drawdown_pct=sleeve.analysis.max_drawdown_pct,
+                avg_abs_exposure_pct=_average_series_value(sleeve.analysis.daily_avg_abs_exposure_pct),
+                turnover_usdc=_sum_series_value(sleeve.analysis.daily_turnover_usdc),
+            )
+            for sleeve in sleeves
+        ],
+        count=len(sleeves),
+    )
 
 
 @router.get("/portfolio-run-comparisons", response_model=PortfolioRunComparisonResponse)
@@ -361,3 +432,26 @@ def _parse_dataset_datetime(value: str, *, field_name: str) -> datetime:
     if parsed.tzinfo is None:
         raise HTTPException(status_code=422, detail=f"{field_name} datetime must include a timezone: {value}")
     return parsed
+
+
+def _average_series_value(points: Sequence[object]) -> float | None:
+    if not points:
+        return None
+    values = [float(getattr(point, "value")) for point in points]
+    return sum(values) / len(values)
+
+
+def _sum_series_value(points: Sequence[object]) -> float | None:
+    if not points:
+        return None
+    return sum(float(getattr(point, "value")) for point in points)
+
+
+def _load_manifest_created_at(run_dir: Path) -> str | None:
+    try:
+        path = run_dir / "manifest.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return None
+    value = payload.get("created_at")
+    return value if isinstance(value, str) else None
