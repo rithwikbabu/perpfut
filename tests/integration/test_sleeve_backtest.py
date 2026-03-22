@@ -1,6 +1,8 @@
 import json
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from perpfut.backtest_data import HistoricalDataset
 from perpfut.config import AppConfig
 from perpfut.domain import Candle
@@ -36,6 +38,9 @@ def _build_dataset() -> HistoricalDataset:
         end=anchor + timedelta(minutes=5),
         granularity="ONE_MINUTE",
         candles_by_product=candles_by_product,
+        fingerprint="dataset-sleeve-fingerprint",
+        source="coinbase",
+        version="1",
     )
 
 
@@ -68,6 +73,9 @@ def test_run_strategy_sleeve_persists_daily_artifacts(tmp_path, monkeypatch) -> 
 
     assert manifest["mode"] == "backtest"
     assert manifest["dataset_id"] == "dataset-sleeve-1"
+    assert manifest["dataset_fingerprint"] == _build_dataset().fingerprint
+    assert manifest["dataset_source"] == _build_dataset().source
+    assert manifest["dataset_version"] == _build_dataset().version
     assert manifest["strategy_instance_id"] == "mom-mixed"
     assert manifest["strategy_instance"]["strategy_params"] == {
         "lookback_candles": 2,
@@ -78,6 +86,9 @@ def test_run_strategy_sleeve_persists_daily_artifacts(tmp_path, monkeypatch) -> 
     assert result.analysis.strategy_id == "momentum"
     assert sleeve_analysis["strategy_instance_id"] == "mom-mixed"
     assert sleeve_analysis["dataset_id"] == "dataset-sleeve-1"
+    assert sleeve_analysis["dataset_fingerprint"] == _build_dataset().fingerprint
+    assert sleeve_analysis["dataset_source"] == _build_dataset().source
+    assert sleeve_analysis["dataset_version"] == _build_dataset().version
     assert len(sleeve_analysis["daily_returns"]) >= 1
     assert len(sleeve_analysis["daily_turnover_usdc"]) == len(sleeve_analysis["daily_returns"])
     assert len(sleeve_analysis["daily_avg_abs_exposure_pct"]) == len(
@@ -115,12 +126,48 @@ def test_load_strategy_sleeve_analysis_reconstructs_optimizer_inputs(tmp_path, m
     )
 
     payload = load_strategy_sleeve_analysis(result.run_dir)
+    positions = [
+        json.loads(line)
+        for line in (result.run_dir / "positions.ndjson").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
 
     assert payload["run_id"] == result.run_id
     assert payload["strategy_instance_id"] == "mean-reversion-bucket"
     assert payload["strategy_id"] == "mean_reversion"
     assert payload["config_fingerprint"] == result.config_fingerprint
+    assert payload["dataset_id"] == "dataset-sleeve-1"
+    assert payload["dataset_fingerprint"] == _build_dataset().fingerprint
+    assert payload["dataset_source"] == _build_dataset().source
+    assert payload["dataset_version"] == _build_dataset().version
     assert payload["daily_returns"]
     assert payload["daily_turnover_usdc"]
     assert payload["daily_avg_abs_exposure_pct"]
     assert payload["asset_contributions"]
+
+    daily_position_rows = [
+        row
+        for row in positions
+        if row["cycle_id"].startswith("cycle-")
+    ]
+    expected_exposures = {}
+    for row in daily_position_rows:
+        portfolio = row["portfolio"]
+        max_abs_notional = portfolio["equity_usdc"] * config.simulation.max_leverage
+        exposure = (
+            abs(portfolio["gross_notional_usdc"] / max_abs_notional)
+            if abs(max_abs_notional) > 1e-12
+            else 0.0
+        )
+        expected_exposures[row["cycle_id"]] = exposure
+
+    actual_exposure_points = payload["daily_avg_abs_exposure_pct"]
+    assert actual_exposure_points
+    expected_daily_exposure = sum(expected_exposures.values()) / len(expected_exposures)
+    assert actual_exposure_points[0]["value"] == pytest.approx(expected_daily_exposure)
+
+    contribution_total = sum(
+        item["total_pnl_usdc"]
+        for item in payload["asset_contributions"]
+    )
+    assert contribution_total == pytest.approx(payload["total_pnl_usdc"])

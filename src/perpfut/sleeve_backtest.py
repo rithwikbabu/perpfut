@@ -30,6 +30,9 @@ class AssetContributionSeries:
 class StrategySleeveAnalysis:
     run_id: str
     dataset_id: str
+    dataset_fingerprint: str
+    dataset_source: str
+    dataset_version: str
     strategy_instance_id: str
     strategy_id: str
     config_fingerprint: str
@@ -97,6 +100,9 @@ def run_strategy_sleeve(
             "analysis_path": "analysis.json",
             "sleeve_analysis_path": "sleeve_analysis.json",
             "dataset_id": dataset.dataset_id,
+            "dataset_fingerprint": dataset.fingerprint,
+            "dataset_source": dataset.source,
+            "dataset_version": dataset.version,
             "strategy_instance": strategy_instance.to_payload(),
             "strategy_instance_id": strategy_instance.strategy_instance_id,
             "products": list(strategy_instance.universe),
@@ -183,16 +189,18 @@ def build_strategy_sleeve_analysis(
     results: list[BacktestCycleResult],
     analysis: RunAnalysis,
 ) -> StrategySleeveAnalysis:
-    max_abs_notional = config.simulation.starting_collateral_usdc * config.simulation.max_leverage
     daily = _aggregate_daily_metrics(
         results=results,
         starting_equity_usdc=config.simulation.starting_collateral_usdc,
-        max_abs_notional_usdc=max_abs_notional,
+        max_leverage=config.simulation.max_leverage,
         universe=strategy_instance.universe,
     )
     return StrategySleeveAnalysis(
         run_id=run_id,
         dataset_id=dataset.dataset_id,
+        dataset_fingerprint=dataset.fingerprint,
+        dataset_source=dataset.source,
+        dataset_version=dataset.version,
         strategy_instance_id=strategy_instance.strategy_instance_id,
         strategy_id=strategy_instance.strategy_id,
         config_fingerprint=config_fingerprint,
@@ -222,7 +230,7 @@ def _aggregate_daily_metrics(
     *,
     results: list[BacktestCycleResult],
     starting_equity_usdc: float,
-    max_abs_notional_usdc: float,
+    max_leverage: float,
     universe: tuple[str, ...],
 ) -> dict[str, Any]:
     daily_rows: dict[str, dict[str, Any]] = {}
@@ -239,6 +247,7 @@ def _aggregate_daily_metrics(
             },
         )
         row["end_equity"] = cycle.portfolio.equity_usdc
+        max_abs_notional_usdc = cycle.portfolio.equity_usdc * max_leverage
         exposure = (
             abs(cycle.portfolio.gross_notional_usdc / max_abs_notional_usdc)
             if abs(max_abs_notional_usdc) > 1e-12
