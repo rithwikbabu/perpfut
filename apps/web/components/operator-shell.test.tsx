@@ -284,6 +284,86 @@ describe("OperatorShell", () => {
     ).toBeInTheDocument();
   });
 
+  it("renders the empty-decision fallback when the latest run has no decision summary yet", async () => {
+    mockedFetchJson.mockImplementation(async (path: string) => {
+      if (path.startsWith("/dashboard/overview")) {
+        return {
+          ...overviewResponse,
+          latest_decision: null,
+        };
+      }
+      if (path.startsWith("/runs?")) {
+        return runsResponse;
+      }
+      if (path === "/paper-runs/active") {
+        return {
+          active: false,
+          pid: null,
+          started_at: null,
+          run_id: null,
+          product_id: null,
+          iterations: null,
+          interval_seconds: null,
+          starting_collateral_usdc: null,
+          log_path: null,
+        };
+      }
+      throw new Error(`unexpected path ${path}`);
+    });
+
+    renderShell();
+
+    expect(await screen.findByText("Latest Cycle Decision")).toBeInTheDocument();
+    expect(
+      screen.getByText("The latest readable run has not produced a normalized decision summary yet.")
+    ).toBeInTheDocument();
+  });
+
+  it("renders a halted decision summary from structured reason fields", async () => {
+    mockedFetchJson.mockImplementation(async (path: string) => {
+      if (path.startsWith("/dashboard/overview")) {
+        return {
+          ...overviewResponse,
+          latest_decision: {
+            ...overviewResponse.latest_decision,
+            execution_summary: {
+              action: "halted",
+              reason_code: "drawdown_halt",
+              reason_message: "Trading halted because the configured daily drawdown limit was breached.",
+              summary: "Trading halted for the cycle because the drawdown guard triggered.",
+            },
+            no_trade_reason: {
+              code: "drawdown_halt",
+              message: "Trading halted because the configured daily drawdown limit was breached.",
+            },
+          },
+        };
+      }
+      if (path.startsWith("/runs?")) {
+        return runsResponse;
+      }
+      if (path === "/paper-runs/active") {
+        return {
+          active: false,
+          pid: null,
+          started_at: null,
+          run_id: null,
+          product_id: null,
+          iterations: null,
+          interval_seconds: null,
+          starting_collateral_usdc: null,
+          log_path: null,
+        };
+      }
+      throw new Error(`unexpected path ${path}`);
+    });
+
+    renderShell();
+
+    expect(await screen.findByText("Trading halted for the cycle because the drawdown guard triggered.")).toBeInTheDocument();
+    expect(screen.getByText("drawdown_halt")).toBeInTheDocument();
+  });
+
   it("renders an API error panel when polling fails", async () => {
     mockedFetchJson.mockRejectedValue(new ApiError("control plane unavailable", 500));
 

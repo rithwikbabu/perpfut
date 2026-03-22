@@ -142,4 +142,41 @@ describe("RunDetail", () => {
     expect(await screen.findByText("Unable to load run artifacts")).toBeInTheDocument();
     expect(screen.getByText("run artifacts unavailable")).toBeInTheDocument();
   });
+
+  it("renders the empty decision fallback for older checkpoints without structured telemetry", async () => {
+    mockedFetchJson.mockImplementation(async (path: string) => {
+      if (path.endsWith("/manifest")) {
+        return {
+          run_id: "20260322T020000000000Z_demo",
+          data: {
+            mode: "paper",
+            product_id: "BTC-PERP-INTX",
+          },
+        };
+      }
+      if (path.endsWith("/state")) {
+        return {
+          run_id: "20260322T020000000000Z_demo",
+          data: {
+            equity_usdc: 10125,
+          },
+        };
+      }
+      if (path.includes("/fills") || path.includes("/positions") || path.includes("/events")) {
+        return {
+          run_id: "20260322T020000000000Z_demo",
+          count: 0,
+          items: [],
+        };
+      }
+      throw new Error(`unexpected path ${path}`);
+    });
+
+    renderRunDetail();
+
+    expect(await screen.findByText("Latest Decision Snapshot")).toBeInTheDocument();
+    expect(
+      screen.getByText("No normalized decision summary is available in this checkpoint yet.")
+    ).toBeInTheDocument();
+  });
 });
