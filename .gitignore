@@ -178,3 +178,5 @@ runs/*
 # Node frontend
 apps/web/.next/
 apps/web/node_modules/
+!apps/web/lib/
+!apps/web/lib/**
