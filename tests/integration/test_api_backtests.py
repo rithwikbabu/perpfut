@@ -312,6 +312,22 @@ def test_build_dataset_route_rejects_timezone_naive_timestamps(monkeypatch) -> N
     assert response.json()["detail"] == "start datetime must include a timezone: 2026-03-20T00:00:00"
 
 
+def test_build_dataset_route_rejects_invalid_ranges(monkeypatch) -> None:
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/api/datasets",
+        json={
+            "productIds": ["BTC-PERP-INTX"],
+            "start": "2026-03-21T00:00:00+00:00",
+            "end": "2026-03-20T00:00:00+00:00",
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "dataset end must be after start"
+
+
 def test_backtests_list_surfaces_latest_terminal_job(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("RUNS_DIR", str(tmp_path))
     manager = StubBacktestManager()

@@ -400,6 +400,24 @@ def test_dataset_show_missing_dataset_raises_system_exit(tmp_path) -> None:
         main(["dataset", "show", "--runs-dir", str(tmp_path), "--dataset-id", "missing"])
 
 
+def test_dataset_build_rejects_invalid_ranges(tmp_path) -> None:
+    with pytest.raises(SystemExit, match="dataset end must be after start"):
+        main(
+            [
+                "dataset",
+                "build",
+                "--runs-dir",
+                str(tmp_path),
+                "--product-id",
+                "BTC-PERP-INTX",
+                "--start",
+                "2026-03-21T00:00:00+00:00",
+                "--end",
+                "2026-03-20T00:00:00+00:00",
+            ]
+        )
+
+
 def test_backtest_compare_missing_suite_raises_system_exit(tmp_path) -> None:
     with pytest.raises(SystemExit, match="backtest suite not found: missing"):
         main(["backtest", "compare", "--runs-dir", str(tmp_path), "--suite-id", "missing"])

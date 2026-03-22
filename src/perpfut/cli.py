@@ -534,14 +534,17 @@ def _build_dataset_command(args: argparse.Namespace) -> int:
     runs_dir = args.runs_dir or AppConfig.from_env().runtime.runs_dir
     start = _parse_iso8601(args.start, field_name="start")
     end = _parse_iso8601(args.end, field_name="end")
-    with CoinbasePublicClient() as client:
-        builder = HistoricalDatasetBuilder(client=client, base_runs_dir=runs_dir)
-        dataset = builder.build_dataset(
-            products=args.product_ids,
-            start=start,
-            end=end,
-            granularity=args.granularity,
-        )
+    try:
+        with CoinbasePublicClient() as client:
+            builder = HistoricalDatasetBuilder(client=client, base_runs_dir=runs_dir)
+            dataset = builder.build_dataset(
+                products=args.product_ids,
+                start=start,
+                end=end,
+                granularity=args.granularity,
+            )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     payload = load_dataset_summary(runs_dir, dataset_id=dataset.dataset_id)
     print(json.dumps(asdict(payload), indent=2, sort_keys=True))
     return 0

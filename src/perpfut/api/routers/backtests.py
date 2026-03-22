@@ -57,14 +57,17 @@ def build_dataset(request: DatasetBuildRequest) -> DatasetSummaryResponse:
     config = AppConfig.from_env()
     start = _parse_dataset_datetime(request.start, field_name="start")
     end = _parse_dataset_datetime(request.end, field_name="end")
-    with CoinbasePublicClient() as client:
-        builder = HistoricalDatasetBuilder(client=client, base_runs_dir=config.runtime.runs_dir)
-        dataset = builder.build_dataset(
-            products=request.product_ids,
-            start=start,
-            end=end,
-            granularity=request.granularity,
-        )
+    try:
+        with CoinbasePublicClient() as client:
+            builder = HistoricalDatasetBuilder(client=client, base_runs_dir=config.runtime.runs_dir)
+            dataset = builder.build_dataset(
+                products=request.product_ids,
+                start=start,
+                end=end,
+                granularity=request.granularity,
+            )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return load_dataset_summary_response(dataset.dataset_id)
 
 
