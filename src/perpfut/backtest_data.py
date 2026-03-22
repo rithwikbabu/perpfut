@@ -23,14 +23,14 @@ REGISTRY_FILENAME = "registry.json"
 class HistoricalDataset:
     dataset_id: str
     created_at: datetime
-    fingerprint: str
-    source: str
-    version: str
     products: tuple[str, ...]
     start: datetime
     end: datetime
     granularity: str
     candles_by_product: dict[str, tuple[Candle, ...]]
+    fingerprint: str = ""
+    source: str = DATASET_SOURCE
+    version: str = DATASET_VERSION
 
 
 @dataclass(frozen=True, slots=True)
