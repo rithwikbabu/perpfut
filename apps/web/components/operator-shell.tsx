@@ -757,8 +757,8 @@ export function OperatorShell() {
                       change={`${formatMoney(metrics.maxDrawdownUsd)} worst peak-to-trough`}
                     />
                     <StatCard
-                      label="Turnover / Exposure"
-                      value={`${formatCount(metrics.tradeCount ?? metrics.fillCount)} trades`}
+                      label="Fill Activity / Exposure"
+                      value={`${formatCount(metrics.fillCount)} fills`}
                       change={`${formatMoney(metrics.turnoverUsd)} turnover / ${formatPercent(metrics.avgAbsExposurePct)} avg exposure`}
                       tone="warning"
                     />

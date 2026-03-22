@@ -220,3 +220,181 @@ def test_analyze_main_exits_cleanly_when_state_json_shape_is_invalid(tmp_path) -
         assert str(exc) == f"invalid analysis inputs for run: {run_id}"
     else:
         raise AssertionError("expected SystemExit")
+
+
+def test_analyze_main_uses_latest_matching_run_when_run_id_is_omitted(tmp_path, capsys) -> None:
+    older_run = tmp_path / "20260322T010000000000Z_alpha"
+    newer_run = tmp_path / "20260322T020000000000Z_beta"
+    for run_dir, ending_equity in ((older_run, 10050.0), (newer_run, 10125.0)):
+        run_dir.mkdir(parents=True)
+        (run_dir / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "run_id": run_dir.name,
+                    "created_at": "2026-03-21T01:00:00Z",
+                    "mode": "paper",
+                    "product_id": "BTC-PERP-INTX",
+                }
+            ),
+            encoding="utf-8",
+        )
+        (run_dir / "config.json").write_text(
+            json.dumps(
+                {
+                    "simulation": {
+                        "starting_collateral_usdc": 10_000.0,
+                        "max_leverage": 2.0,
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        (run_dir / "state.json").write_text(
+            json.dumps(
+                {
+                    "run_id": run_dir.name,
+                    "cycle_id": "cycle-0001",
+                    "mode": "paper",
+                    "position": {
+                        "collateral_usdc": 10_000.0,
+                        "realized_pnl_usdc": ending_equity - 10_000.0,
+                        "quantity": 0.0,
+                        "entry_price": 100.0,
+                        "mark_price": 100.0,
+                    },
+                    "execution_summary": {
+                        "reason_code": "filled",
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        (run_dir / "events.ndjson").write_text(
+            json.dumps(
+                {
+                    "cycle_id": "cycle-0001",
+                    "timestamp": "2026-03-21T01:00:00Z",
+                    "execution_summary": {
+                        "reason_code": "filled",
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (run_dir / "positions.ndjson").write_text(
+            json.dumps(
+                {
+                    "cycle_id": "cycle-0001",
+                    "position": {
+                        "collateral_usdc": 10_000.0,
+                        "realized_pnl_usdc": ending_equity - 10_000.0,
+                        "quantity": 0.0,
+                        "entry_price": 100.0,
+                        "mark_price": 100.0,
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+    exit_code = main(["analyze", "--runs-dir", str(tmp_path), "--mode", "paper"])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["run_id"] == "20260322T020000000000Z_beta"
+    assert payload["ending_equity_usdc"] == 10125.0
+    assert payload["starting_equity_usdc"] == 10000.0
+    assert payload["total_pnl_usdc"] == 125.0
+    assert payload["total_return_pct"] == 0.0125
+
+
+def test_analyze_main_skips_latest_run_with_shape_invalid_manifest(tmp_path, capsys) -> None:
+    invalid_latest = tmp_path / "20260322T030000000000Z_invalid"
+    valid_latest = tmp_path / "20260322T020000000000Z_beta"
+    invalid_latest.mkdir(parents=True)
+    valid_latest.mkdir(parents=True)
+
+    (invalid_latest / "manifest.json").write_text("[1]\n", encoding="utf-8")
+    (invalid_latest / "state.json").write_text("{}", encoding="utf-8")
+
+    (valid_latest / "manifest.json").write_text(
+        json.dumps(
+            {
+                "run_id": valid_latest.name,
+                "created_at": "2026-03-21T01:00:00Z",
+                "mode": "paper",
+                "product_id": "BTC-PERP-INTX",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (valid_latest / "config.json").write_text(
+        json.dumps(
+            {
+                "simulation": {
+                    "starting_collateral_usdc": 10_000.0,
+                    "max_leverage": 2.0,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    (valid_latest / "state.json").write_text(
+        json.dumps(
+            {
+                "run_id": valid_latest.name,
+                "cycle_id": "cycle-0001",
+                "mode": "paper",
+                "position": {
+                    "collateral_usdc": 10_000.0,
+                    "realized_pnl_usdc": 125.0,
+                    "quantity": 0.0,
+                    "entry_price": 100.0,
+                    "mark_price": 100.0,
+                },
+                "execution_summary": {
+                    "reason_code": "filled",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (valid_latest / "events.ndjson").write_text(
+        json.dumps(
+            {
+                "cycle_id": "cycle-0001",
+                "timestamp": "2026-03-21T01:00:00Z",
+                "execution_summary": {
+                    "reason_code": "filled",
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (valid_latest / "positions.ndjson").write_text(
+        json.dumps(
+            {
+                "cycle_id": "cycle-0001",
+                "position": {
+                    "collateral_usdc": 10_000.0,
+                    "realized_pnl_usdc": 125.0,
+                    "quantity": 0.0,
+                    "entry_price": 100.0,
+                    "mark_price": 100.0,
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    exit_code = main(["analyze", "--runs-dir", str(tmp_path), "--mode", "paper"])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["run_id"] == valid_latest.name
+    assert payload["starting_equity_usdc"] == 10000.0
+    assert payload["total_pnl_usdc"] == 125.0

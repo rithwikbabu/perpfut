@@ -61,9 +61,22 @@ npm run dev
 ```
 
 The frontend polls the API every 2 seconds. It is local-only, currently focuses
-on monitoring and artifact drill-down, and keeps live mode read-only. Paper-run
-control routes already exist in the API and will be wired into the UI in the
-next frontend step.
+on monitoring and artifact drill-down, keeps live mode read-only, and now reads
+canonical performance analysis for overview and run-detail reporting.
+
+## Performance Inspection
+
+Inspect the latest paper run from the CLI:
+
+```bash
+python3 -m perpfut analyze --mode paper
+```
+
+The same canonical analysis is available:
+
+- from the API at `GET /api/runs/{runId}/analysis`
+- in the dashboard overview via `latest_analysis`
+- in the run detail page at `/runs/<run_id>`
 
 ## Design Principles
 
@@ -84,3 +97,4 @@ next frontend step.
 - Runbook: `docs/runbook.md`
 - MVP readiness gates: `docs/mvp-readiness.md`
 - Operator API and UI contract: `docs/operator-api.md`
+- Performance inspection guide: `docs/performance-reporting.md`

@@ -261,8 +261,8 @@ function PerformanceSnapshot({ analysis }: { analysis: RunAnalysisResponse }) {
             tone="danger"
           />
           <DetailMetric
-            label="Turnover / Trades"
-            value={`${formatMoney(metrics.turnoverUsd)} / ${formatCount(metrics.tradeCount ?? metrics.fillCount)}`}
+            label="Turnover / Fill Rows"
+            value={`${formatMoney(metrics.turnoverUsd)} / ${formatCount(metrics.fillCount)}`}
             tone="warning"
           />
           <DetailMetric
