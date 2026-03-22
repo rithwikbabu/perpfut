@@ -39,11 +39,55 @@ class ArtifactListResponse(BaseModel):
     count: int
 
 
+class NoTradeReasonResponse(BaseModel):
+    code: str
+    message: str
+
+
+class RiskDecisionResponse(BaseModel):
+    target_before_risk: float
+    target_after_risk: float
+    current_position: float
+    target_notional_usdc: float
+    current_notional_usdc: float
+    delta_notional_usdc: float
+    rebalance_threshold: float
+    min_trade_notional_usdc: float
+    halted: bool
+    rebalance_eligible: bool
+
+
+class ExecutionSummaryResponse(BaseModel):
+    action: str
+    reason_code: str
+    reason_message: str
+    summary: str
+
+
+class SignalDecisionResponse(BaseModel):
+    strategy: str | None = None
+    raw_value: float | None = None
+    target_position: float | None = None
+
+
+class LatestDecisionResponse(BaseModel):
+    cycle_id: str | None = None
+    mode: str | None = None
+    product_id: str | None = None
+    signal: SignalDecisionResponse | None = None
+    risk_decision: RiskDecisionResponse | None = None
+    execution_summary: ExecutionSummaryResponse | None = None
+    no_trade_reason: NoTradeReasonResponse | None = None
+    order_intent: dict[str, Any] | None = None
+    fill: dict[str, Any] | None = None
+
+
 class DashboardOverviewResponse(BaseModel):
     mode: str
     generated_at: datetime
     latest_run: RunSummaryResponse | None = None
     latest_state: dict[str, Any] | None = None
+    latest_decision: LatestDecisionResponse | None = None
     recent_events: list[dict[str, Any]] = Field(default_factory=list)
     recent_fills: list[dict[str, Any]] = Field(default_factory=list)
     recent_positions: list[dict[str, Any]] = Field(default_factory=list)

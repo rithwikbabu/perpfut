@@ -23,9 +23,39 @@ Every cycle event should include:
 - `market`
 - `signal`
 - `target_position`
+- `risk_decision`
+- `execution_summary`
+- `no_trade_reason`
 - `order_intent`
 - `fill`
 - `position`
+
+## Decision Fields
+
+`no_trade_reason` is structured for operator and reporting use:
+
+- `code`
+- `message`
+
+`risk_decision` captures the cycle-level risk state:
+
+- `target_before_risk`
+- `target_after_risk`
+- `current_position`
+- `target_notional_usdc`
+- `current_notional_usdc`
+- `delta_notional_usdc`
+- `rebalance_threshold`
+- `min_trade_notional_usdc`
+- `halted`
+- `rebalance_eligible`
+
+`execution_summary` provides the operator-facing cycle outcome:
+
+- `action`
+- `reason_code`
+- `reason_message`
+- `summary`
 
 ## Design Rules
 

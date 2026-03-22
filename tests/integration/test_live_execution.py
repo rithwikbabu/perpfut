@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import json
 
 from perpfut.config import AppConfig
 from perpfut.domain import (
@@ -186,6 +187,8 @@ def test_live_executor_previews_submits_and_logs_fill(tmp_path) -> None:
     assert "order_fill" in events
     assert "execution_summary" in events
     assert "risk_decision" in events
+    state = json.loads(store.state_path.read_text(encoding="utf-8"))
+    assert state["signal"]["target_position"] == 0.5
 
 
 def test_live_executor_halts_on_preview_error_without_submit(tmp_path) -> None:

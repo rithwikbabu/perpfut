@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from dataclasses import replace
 from typing import Protocol
 
 from .config import AppConfig
@@ -171,6 +172,7 @@ class LiveExecutor:
             raw_target_position,
             max_abs_position=self.config.risk.max_abs_position,
         )
+        signal = replace(signal, target_position=target_position)
         target_notional_usdc = target_position * self.config.max_abs_notional_usdc
         delta_notional_usdc = target_notional_usdc - current_notional_usdc
         risk_decision = build_risk_decision(
@@ -217,6 +219,7 @@ class LiveExecutor:
                 exchange_state=exchange_state,
                 current_notional_usdc=current_notional_usdc,
                 current_position=current_position,
+                signal=signal,
                 no_trade_reason=no_trade_reason,
                 risk_decision=risk_decision,
                 execution_summary=execution_summary,
@@ -266,6 +269,7 @@ class LiveExecutor:
                 exchange_state=exchange_state,
                 current_notional_usdc=current_notional_usdc,
                 current_position=current_position,
+                signal=signal,
                 no_trade_reason=no_trade_reason,
                 risk_decision=risk_decision,
                 execution_summary=execution_summary,
@@ -314,6 +318,8 @@ class LiveExecutor:
                 exchange_state=exchange_state,
                 current_notional_usdc=current_notional_usdc,
                 current_position=current_position,
+                signal=signal,
+                order_intent=order_intent,
                 risk_decision=risk_decision,
                 execution_summary=execution_summary,
             )
@@ -359,6 +365,8 @@ class LiveExecutor:
                 exchange_state=exchange_state,
                 current_notional_usdc=current_notional_usdc,
                 current_position=current_position,
+                signal=signal,
+                order_intent=order_intent,
                 risk_decision=risk_decision,
                 execution_summary=execution_summary,
             )
@@ -410,6 +418,8 @@ class LiveExecutor:
             exchange_state=exchange_state,
             current_notional_usdc=current_notional_usdc,
             current_position=current_position,
+            signal=signal,
+            order_intent=order_intent,
             last_submission=submission,
             last_order_status=order_status,
             risk_decision=risk_decision,
@@ -486,6 +496,8 @@ class LiveExecutor:
         exchange_state: IntxReconciliationSnapshot,
         current_notional_usdc: float,
         current_position: float,
+        signal: object | None = None,
+        order_intent: object | None = None,
         last_submission: object | None = None,
         last_order_status: object | None = None,
         no_trade_reason: NoTradeReason | None = None,
@@ -501,6 +513,8 @@ class LiveExecutor:
                 "portfolio_uuid": self.portfolio_uuid,
                 "current_position": current_position,
                 "current_position_notional_usdc": current_notional_usdc,
+                "signal": signal,
+                "order_intent": order_intent,
                 "exchange_snapshot": exchange_state,
                 "no_trade_reason": no_trade_reason,
                 "risk_decision": risk_decision,

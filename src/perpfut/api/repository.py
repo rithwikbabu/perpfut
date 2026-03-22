@@ -7,7 +7,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .schemas import DashboardOverviewResponse, RunSummaryResponse, RunsListResponse
+from .schemas import (
+    DashboardOverviewResponse,
+    ExecutionSummaryResponse,
+    LatestDecisionResponse,
+    NoTradeReasonResponse,
+    RiskDecisionResponse,
+    RunSummaryResponse,
+    RunsListResponse,
+    SignalDecisionResponse,
+)
 from ..config import AppConfig
 from ..run_history import list_runs, load_run_manifest, load_run_state
 
@@ -45,6 +54,7 @@ def build_dashboard_overview(*, mode: str, limit: int = 10) -> DashboardOverview
         generated_at=datetime.now(timezone.utc),
         latest_run=latest_run,
         latest_state=latest_state,
+        latest_decision=_build_latest_decision(latest_state),
         recent_events=recent_events,
         recent_fills=recent_fills,
         recent_positions=recent_positions,
@@ -125,3 +135,37 @@ def _run_summary_dict(run_id: str, manifest: dict[str, Any]) -> dict[str, Any]:
         "product_id": manifest.get("product_id"),
         "resumed_from_run_id": manifest.get("resumed_from_run_id"),
     }
+
+
+def _build_latest_decision(latest_state: dict[str, Any] | None) -> LatestDecisionResponse | None:
+    if not latest_state:
+        return None
+    signal = _coerce_dict(latest_state.get("signal"))
+    risk_decision = _coerce_dict(latest_state.get("risk_decision"))
+    execution_summary = _coerce_dict(latest_state.get("execution_summary"))
+    no_trade_reason = _coerce_dict(latest_state.get("no_trade_reason"))
+    if not any((signal, risk_decision, execution_summary, no_trade_reason)):
+        return None
+    return LatestDecisionResponse(
+        cycle_id=_coerce_str(latest_state.get("cycle_id")),
+        mode=_coerce_str(latest_state.get("mode")),
+        product_id=_coerce_str(latest_state.get("product_id")),
+        signal=SignalDecisionResponse.model_validate(signal) if signal else None,
+        risk_decision=RiskDecisionResponse.model_validate(risk_decision) if risk_decision else None,
+        execution_summary=(
+            ExecutionSummaryResponse.model_validate(execution_summary)
+            if execution_summary
+            else None
+        ),
+        no_trade_reason=NoTradeReasonResponse.model_validate(no_trade_reason) if no_trade_reason else None,
+        order_intent=_coerce_dict(latest_state.get("order_intent")),
+        fill=_coerce_dict(latest_state.get("fill")),
+    )
+
+
+def _coerce_dict(value: Any) -> dict[str, Any] | None:
+    return value if isinstance(value, dict) else None
+
+
+def _coerce_str(value: Any) -> str | None:
+    return value if isinstance(value, str) else None
