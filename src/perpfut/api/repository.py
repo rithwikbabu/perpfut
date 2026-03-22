@@ -8,9 +8,20 @@ from pathlib import Path
 from typing import Any
 
 from ..analysis import RunAnalysis, analyze_run
+from ..backtest_history import (
+    compare_backtest_suite,
+    list_backtest_runs,
+    list_backtest_suites,
+    load_backtest_run,
+)
 from pydantic import ValidationError
 from .schemas import (
     AnalysisSeriesPointResponse,
+    BacktestRunDetailResponse,
+    BacktestRunSummaryResponse,
+    BacktestSuiteComparisonItemResponse,
+    BacktestSuiteDetailResponse,
+    BacktestSuiteSummaryResponse,
     DashboardOverviewResponse,
     ExecutionSummaryResponse,
     LatestDecisionResponse,
@@ -65,6 +76,101 @@ def build_dashboard_overview(*, mode: str, limit: int = 10) -> DashboardOverview
         recent_events=recent_events,
         recent_fills=recent_fills,
         recent_positions=recent_positions,
+    )
+
+
+def list_backtest_run_summaries(*, limit: int = 10) -> list[BacktestRunSummaryResponse]:
+    return [
+        BacktestRunSummaryResponse(
+            run_id=item.run_id,
+            created_at=item.created_at,
+            suite_id=item.suite_id,
+            dataset_id=item.dataset_id,
+            product_id=item.product_id,
+            strategy_id=item.strategy_id,
+            total_pnl_usdc=item.total_pnl_usdc,
+            total_return_pct=item.total_return_pct,
+            max_drawdown_usdc=item.max_drawdown_usdc,
+            max_drawdown_pct=item.max_drawdown_pct,
+            turnover_usdc=item.turnover_usdc,
+            fill_count=item.fill_count,
+            avg_abs_exposure_pct=item.avg_abs_exposure_pct,
+            max_abs_exposure_pct=item.max_abs_exposure_pct,
+        )
+        for item in list_backtest_runs(get_runs_dir(), limit=limit)
+    ]
+
+
+def load_backtest_run_detail(run_id: str) -> BacktestRunDetailResponse:
+    payload = load_backtest_run(get_runs_dir(), run_id=run_id)
+    analysis_payload = payload.get("analysis")
+    if not isinstance(analysis_payload, dict):
+        raise ArtifactError(f"invalid backtest analysis payload for: {run_id}")
+    try:
+        analysis = RunAnalysisResponse.model_validate(analysis_payload)
+    except ValidationError as exc:
+        raise ArtifactError(f"invalid backtest analysis payload for: {run_id}") from exc
+    manifest = payload.get("manifest")
+    state = payload.get("state")
+    if not isinstance(manifest, dict) or not isinstance(state, dict):
+        raise ArtifactError(f"invalid backtest artifacts for: {run_id}")
+    return BacktestRunDetailResponse(
+        run_id=run_id,
+        manifest=manifest,
+        state=state,
+        analysis=analysis,
+    )
+
+
+def list_backtest_suite_summaries(*, limit: int = 10) -> list[BacktestSuiteSummaryResponse]:
+    return [
+        BacktestSuiteSummaryResponse(
+            suite_id=item.suite_id,
+            created_at=item.created_at,
+            dataset_id=item.dataset_id,
+            products=list(item.products),
+            strategies=list(item.strategies),
+            run_ids=list(item.run_ids),
+        )
+        for item in list_backtest_suites(get_runs_dir(), limit=limit)
+    ]
+
+
+def load_backtest_suite_detail(suite_id: str) -> BacktestSuiteDetailResponse:
+    base_dir = get_runs_dir()
+    suites = {
+        item.suite_id: item
+        for item in list_backtest_suites(base_dir, limit=1000)
+    }
+    summary = suites.get(suite_id)
+    if summary is None:
+        raise FileNotFoundError(f"backtest suite not found: {suite_id}")
+    comparison = compare_backtest_suite(base_dir, suite_id=suite_id)
+    return BacktestSuiteDetailResponse(
+        suite_id=summary.suite_id,
+        created_at=summary.created_at,
+        dataset_id=summary.dataset_id,
+        products=list(summary.products),
+        strategies=list(summary.strategies),
+        run_ids=list(summary.run_ids),
+        ranking_policy=comparison.ranking_policy,
+        items=[
+            BacktestSuiteComparisonItemResponse(
+                rank=item.rank,
+                run_id=item.run_id,
+                strategy_id=item.strategy_id,
+                total_pnl_usdc=item.total_pnl_usdc,
+                total_return_pct=item.total_return_pct,
+                max_drawdown_usdc=item.max_drawdown_usdc,
+                max_drawdown_pct=item.max_drawdown_pct,
+                turnover_usdc=item.turnover_usdc,
+                fill_count=item.fill_count,
+                avg_abs_exposure_pct=item.avg_abs_exposure_pct,
+                max_abs_exposure_pct=item.max_abs_exposure_pct,
+                decision_counts=item.decision_counts,
+            )
+            for item in comparison.items
+        ],
     )
 
 
