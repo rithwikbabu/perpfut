@@ -341,7 +341,7 @@ export function BacktestsShell() {
   const effectiveSelectedPortfolioRunId =
     selectedPortfolioRunId && portfolioRuns.data?.items.some((item) => item.run_id === selectedPortfolioRunId)
       ? selectedPortfolioRunId
-      : null;
+      : (portfolioRuns.data?.items[0]?.run_id ?? null);
   const selectedPortfolio = useSWR<PortfolioRunDetailResponse>(
     effectiveSelectedPortfolioRunId ? `/portfolio-runs/${effectiveSelectedPortfolioRunId}` : null,
     fetchJson,
@@ -929,7 +929,7 @@ export function BacktestsShell() {
               ) : portfolioRuns.data && portfolioRuns.data.items.length > 0 ? (
                 <div className="space-y-3">
                   {portfolioRuns.data.items.map((run) => {
-                    const active = run.run_id === selectedPortfolioRunId;
+                    const active = run.run_id === effectiveSelectedPortfolioRunId;
                     return (
                       <button
                         key={run.run_id}
