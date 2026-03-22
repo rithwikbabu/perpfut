@@ -1,7 +1,13 @@
 from datetime import datetime, timedelta, timezone
 import json
 
-from perpfut.backtest_data import HistoricalDatasetBuilder, synthesize_aligned_snapshots
+from perpfut.backtest_data import (
+    DATASET_SOURCE,
+    DATASET_VERSION,
+    HistoricalDatasetBuilder,
+    compute_dataset_fingerprint,
+    synthesize_aligned_snapshots,
+)
 from perpfut.domain import Candle
 
 
@@ -66,18 +72,26 @@ def test_historical_dataset_builder_persists_manifest_and_candles(tmp_path) -> N
 
     dataset_dir = tmp_path / "backtests" / "datasets" / dataset.dataset_id
     manifest = json.loads((dataset_dir / "manifest.json").read_text(encoding="utf-8"))
+    registry = json.loads(
+        (tmp_path / "backtests" / "datasets" / "registry.json").read_text(encoding="utf-8")
+    )
 
     assert dataset_dir.exists()
+    assert manifest["fingerprint"] == dataset.fingerprint
     assert manifest["products"] == ["BTC-PERP-INTX", "ETH-PERP-INTX"]
+    assert manifest["source"] == DATASET_SOURCE
+    assert manifest["version"] == DATASET_VERSION
     assert manifest["candle_counts"] == {"BTC-PERP-INTX": 5, "ETH-PERP-INTX": 5}
     assert (dataset_dir / "BTC-PERP-INTX.json").exists()
     assert (dataset_dir / "ETH-PERP-INTX.json").exists()
+    assert registry[dataset.fingerprint] == dataset.dataset_id
     assert client.calls == [
         ("BTC-PERP-INTX", anchor, anchor + timedelta(minutes=5), "ONE_MINUTE"),
         ("ETH-PERP-INTX", anchor, anchor + timedelta(minutes=5), "ONE_MINUTE"),
     ]
 
     loaded = builder.load_dataset(dataset.dataset_id)
+    assert loaded.fingerprint == dataset.fingerprint
     assert loaded.products == dataset.products
     assert loaded.candles_by_product["BTC-PERP-INTX"][0].close == 100.5
 
@@ -132,3 +146,61 @@ def test_historical_dataset_builder_rejects_products_without_candles(tmp_path) -
         assert "no candles for product 'ETH-PERP-INTX'" in str(exc)
     else:
         raise AssertionError("expected builder to reject empty-product datasets")
+
+
+def test_historical_dataset_builder_reuses_cached_dataset_for_identical_requests(tmp_path) -> None:
+    anchor = datetime(2026, 3, 20, 0, 0, tzinfo=timezone.utc)
+    client = FakeHistoricalClient(
+        {
+            "BTC-PERP-INTX": _build_candles(anchor=anchor, count=5, base_price=100.0),
+            "ETH-PERP-INTX": _build_candles(anchor=anchor, count=5, base_price=200.0),
+        }
+    )
+    builder = HistoricalDatasetBuilder(client=client, base_runs_dir=tmp_path)
+
+    first = builder.build_dataset(
+        products=["BTC-PERP-INTX", "ETH-PERP-INTX"],
+        start=anchor,
+        end=anchor + timedelta(minutes=5),
+    )
+    second = builder.build_dataset(
+        products=["ETH-PERP-INTX", "BTC-PERP-INTX"],
+        start=anchor,
+        end=anchor + timedelta(minutes=5),
+    )
+
+    assert second.dataset_id == first.dataset_id
+    assert client.calls == [
+        ("BTC-PERP-INTX", anchor, anchor + timedelta(minutes=5), "ONE_MINUTE"),
+        ("ETH-PERP-INTX", anchor, anchor + timedelta(minutes=5), "ONE_MINUTE"),
+    ]
+
+
+def test_historical_dataset_builder_raises_on_missing_dataset_id(tmp_path) -> None:
+    builder = HistoricalDatasetBuilder(client=FakeHistoricalClient({}), base_runs_dir=tmp_path)
+
+    try:
+        builder.load_dataset("missing")
+    except FileNotFoundError as exc:
+        assert "backtest dataset not found: missing" in str(exc)
+    else:
+        raise AssertionError("expected missing dataset id to raise FileNotFoundError")
+
+
+def test_compute_dataset_fingerprint_is_order_insensitive() -> None:
+    anchor = datetime(2026, 3, 20, 0, 0, tzinfo=timezone.utc)
+
+    first = compute_dataset_fingerprint(
+        products=["BTC-PERP-INTX", "ETH-PERP-INTX"],
+        start=anchor,
+        end=anchor + timedelta(minutes=5),
+        granularity="ONE_MINUTE",
+    )
+    second = compute_dataset_fingerprint(
+        products=["ETH-PERP-INTX", "BTC-PERP-INTX"],
+        start=anchor,
+        end=anchor + timedelta(minutes=5),
+        granularity="ONE_MINUTE",
+    )
+
+    assert first == second

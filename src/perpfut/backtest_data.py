@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -13,12 +14,18 @@ from .domain import Candle, MarketSnapshot
 GRANULARITY_SECONDS = {
     "ONE_MINUTE": 60,
 }
+DATASET_SOURCE = "coinbase"
+DATASET_VERSION = "1"
+REGISTRY_FILENAME = "registry.json"
 
 
 @dataclass(frozen=True, slots=True)
 class HistoricalDataset:
     dataset_id: str
     created_at: datetime
+    fingerprint: str
+    source: str
+    version: str
     products: tuple[str, ...]
     start: datetime
     end: datetime
@@ -56,6 +63,7 @@ class HistoricalDatasetBuilder:
     def __init__(self, *, client: HistoricalCandleClient, base_runs_dir: Path):
         self._client = client
         self._datasets_dir = base_runs_dir / "backtests" / "datasets"
+        self._registry_path = self._datasets_dir / REGISTRY_FILENAME
 
     def build_dataset(
         self,
@@ -69,6 +77,17 @@ class HistoricalDatasetBuilder:
             raise ValueError("dataset requires at least one product")
         if end <= start:
             raise ValueError("dataset end must be after start")
+
+        self._datasets_dir.mkdir(parents=True, exist_ok=True)
+        fingerprint = compute_dataset_fingerprint(
+            products=products,
+            start=start,
+            end=end,
+            granularity=granularity,
+        )
+        cached_dataset_id = self._load_registry().get(fingerprint)
+        if cached_dataset_id is not None:
+            return self.load_dataset(cached_dataset_id)
 
         created_at = datetime.now(timezone.utc)
         dataset_id = created_at.strftime("%Y%m%dT%H%M%S%fZ")
@@ -92,6 +111,9 @@ class HistoricalDatasetBuilder:
         dataset = HistoricalDataset(
             dataset_id=dataset_id,
             created_at=created_at,
+            fingerprint=fingerprint,
+            source=DATASET_SOURCE,
+            version=DATASET_VERSION,
             products=tuple(products),
             start=start,
             end=end,
@@ -103,6 +125,8 @@ class HistoricalDatasetBuilder:
 
     def load_dataset(self, dataset_id: str) -> HistoricalDataset:
         dataset_dir = self._datasets_dir / dataset_id
+        if not dataset_dir.exists():
+            raise FileNotFoundError(f"backtest dataset not found: {dataset_id}")
         manifest = json.loads((dataset_dir / "manifest.json").read_text(encoding="utf-8"))
         candles_by_product: dict[str, tuple[Candle, ...]] = {}
         for product_id in manifest["products"]:
@@ -111,6 +135,9 @@ class HistoricalDatasetBuilder:
         return HistoricalDataset(
             dataset_id=manifest["dataset_id"],
             created_at=datetime.fromisoformat(manifest["created_at"]),
+            fingerprint=str(manifest.get("fingerprint", "")),
+            source=str(manifest.get("source", DATASET_SOURCE)),
+            version=str(manifest.get("version", DATASET_VERSION)),
             products=tuple(manifest["products"]),
             start=datetime.fromisoformat(manifest["start"]),
             end=datetime.fromisoformat(manifest["end"]),
@@ -124,6 +151,9 @@ class HistoricalDatasetBuilder:
         manifest = {
             "dataset_id": dataset.dataset_id,
             "created_at": dataset.created_at.isoformat(),
+            "fingerprint": dataset.fingerprint,
+            "source": dataset.source,
+            "version": dataset.version,
             "products": list(dataset.products),
             "start": dataset.start.isoformat(),
             "end": dataset.end.isoformat(),
@@ -146,6 +176,26 @@ class HistoricalDatasetBuilder:
                 json.dumps(payload, indent=2, sort_keys=True) + "\n",
                 encoding="utf-8",
             )
+        registry = self._load_registry()
+        registry[dataset.fingerprint] = dataset.dataset_id
+        self._write_registry(registry)
+
+    def _load_registry(self) -> dict[str, str]:
+        if not self._registry_path.exists():
+            return {}
+        payload = json.loads(self._registry_path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("dataset registry is malformed")
+        return {
+            str(fingerprint): str(dataset_id)
+            for fingerprint, dataset_id in payload.items()
+        }
+
+    def _write_registry(self, registry: dict[str, str]) -> None:
+        self._registry_path.write_text(
+            json.dumps(registry, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
 
 
 def synthesize_aligned_snapshots(
@@ -250,3 +300,27 @@ def _parse_candle(payload: dict[str, object]) -> Candle:
         close=float(payload["close"]),
         volume=float(payload["volume"]),
     )
+
+
+def compute_dataset_fingerprint(
+    *,
+    products: list[str],
+    start: datetime,
+    end: datetime,
+    granularity: str,
+    source: str = DATASET_SOURCE,
+    version: str = DATASET_VERSION,
+) -> str:
+    normalized_products = sorted(products)
+    payload = {
+        "source": source,
+        "products": normalized_products,
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "granularity": granularity,
+        "version": version,
+    }
+    digest = hashlib.sha256(
+        json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    return digest
