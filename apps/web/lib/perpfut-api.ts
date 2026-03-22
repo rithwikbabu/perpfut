@@ -56,6 +56,9 @@ export type RunAnalysis = {
   strategy_id: string | null;
   started_at: string | null;
   ended_at: string | null;
+  date_range_start: string | null;
+  date_range_end: string | null;
+  sharpe_ratio: number | null;
   cycle_count: number;
   starting_equity_usdc: number;
   ending_equity_usdc: number;
@@ -150,10 +153,18 @@ export type BacktestRunRequest = {
 export type BacktestJobStatusResponse = {
   job_id: string;
   status: string;
+  phase: string | null;
+  phase_message: string | null;
   pid: number | null;
   created_at: string;
   started_at: string | null;
   finished_at: string | null;
+  total_runs: number | null;
+  completed_runs: number | null;
+  progress_pct: number | null;
+  elapsed_seconds: number | null;
+  eta_seconds: number | null;
+  last_heartbeat_at: string | null;
   suite_id: string | null;
   dataset_id: string | null;
   run_ids: string[];
@@ -167,8 +178,11 @@ export type BacktestRunSummary = {
   created_at: string | null;
   suite_id: string | null;
   dataset_id: string | null;
+  date_range_start: string | null;
+  date_range_end: string | null;
   product_id: string | null;
   strategy_id: string | null;
+  sharpe_ratio: number | null;
   total_pnl_usdc: number;
   total_return_pct: number;
   max_drawdown_usdc: number;
@@ -183,12 +197,16 @@ export type BacktestsListResponse = {
   items: BacktestRunSummary[];
   count: number;
   active_job: BacktestJobStatusResponse | null;
+  latest_job: BacktestJobStatusResponse | null;
 };
 
 export type BacktestSuiteSummary = {
   suite_id: string;
   created_at: string | null;
   dataset_id: string | null;
+  date_range_start: string | null;
+  date_range_end: string | null;
+  sharpe_ratio: number | null;
   products: string[];
   strategies: string[];
   run_ids: string[];
@@ -198,12 +216,16 @@ export type BacktestSuitesListResponse = {
   items: BacktestSuiteSummary[];
   count: number;
   active_job: BacktestJobStatusResponse | null;
+  latest_job: BacktestJobStatusResponse | null;
 };
 
 export type BacktestSuiteComparisonItem = {
   rank: number;
   run_id: string;
   strategy_id: string | null;
+  date_range_start: string | null;
+  date_range_end: string | null;
+  sharpe_ratio: number | null;
   total_pnl_usdc: number;
   total_return_pct: number;
   max_drawdown_usdc: number;
@@ -219,6 +241,9 @@ export type BacktestSuiteDetailResponse = {
   suite_id: string;
   created_at: string | null;
   dataset_id: string | null;
+  date_range_start: string | null;
+  date_range_end: string | null;
+  sharpe_ratio: number | null;
   products: string[];
   strategies: string[];
   run_ids: string[];
