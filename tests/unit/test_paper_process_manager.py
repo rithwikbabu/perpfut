@@ -188,3 +188,49 @@ def test_status_reaps_old_empty_control_lock(monkeypatch, tmp_path) -> None:
 
     assert status.active is False
     assert not lock_path.exists()
+
+
+def test_status_reaps_dead_child_process(monkeypatch, tmp_path) -> None:
+    manager = PaperProcessManager(tmp_path)
+    _write_metadata(tmp_path, pid=4321)
+    metadata_path = tmp_path / "control" / "active_paper.json"
+
+    monkeypatch.setattr("os.waitpid", lambda pid, flags: (pid, 0))
+
+    status = manager.status()
+
+    assert status.active is False
+    assert not metadata_path.exists()
+
+
+def test_stop_succeeds_when_child_is_already_a_zombie(monkeypatch, tmp_path) -> None:
+    manager = PaperProcessManager(tmp_path)
+    _write_metadata(tmp_path, pid=4321)
+    metadata_path = tmp_path / "control" / "active_paper.json"
+    waitpid_results = iter([(0, 0), (4321, 0)])
+
+    monkeypatch.setattr("os.waitpid", lambda pid, flags: next(waitpid_results))
+    monkeypatch.setattr(PaperProcessManager, "_get_process_state", lambda self, pid: None)
+    monkeypatch.setattr(manager, "_signal_process_group", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("time.sleep", lambda *_args, **_kwargs: None)
+
+    status = manager.stop()
+
+    assert status.active is False
+    assert not metadata_path.exists()
+
+
+def test_status_treats_zombie_process_state_as_inactive(monkeypatch, tmp_path) -> None:
+    manager = PaperProcessManager(tmp_path)
+    _write_metadata(tmp_path, pid=4321)
+    metadata_path = tmp_path / "control" / "active_paper.json"
+    reaped = []
+
+    monkeypatch.setattr("os.waitpid", lambda pid, flags: reaped.append((pid, flags)) or (0, 0))
+    monkeypatch.setattr(PaperProcessManager, "_get_process_state", lambda self, pid: "Z")
+
+    status = manager.status()
+
+    assert status.active is False
+    assert not metadata_path.exists()
+    assert reaped == [(4321, os.WNOHANG), (4321, os.WNOHANG)]
