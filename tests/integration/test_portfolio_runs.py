@@ -1,10 +1,11 @@
+import json
 from datetime import datetime, timedelta, timezone
 
 from perpfut.backtest_data import HistoricalDataset
 from perpfut.config import AppConfig
 from perpfut.domain import Candle
 from perpfut.portfolio_optimizer import PortfolioOptimizationConfig
-from perpfut.portfolio_runs import run_portfolio_research
+from perpfut.portfolio_runs import run_portfolio_research, run_portfolio_research_from_sleeves
 from perpfut.strategy_instances import StrategyInstanceSpec
 
 
@@ -92,3 +93,61 @@ def test_run_portfolio_research_persists_artifacts_and_reuses_cached_sleeves(tmp
     assert (first.run_dir / "contributions.json").exists()
     assert first.analysis.strategy_instance_ids == ("mom-a",)
     assert second.sleeve_run_ids == first.sleeve_run_ids
+
+
+def test_run_portfolio_research_from_sleeves_preserves_full_strategy_payloads(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("LOOKBACK_CANDLES", "2")
+    monkeypatch.setenv("SIGNAL_SCALE", "150")
+    monkeypatch.setenv("REBALANCE_THRESHOLD", "0.0")
+    monkeypatch.setenv("MIN_TRADE_NOTIONAL_USDC", "0.0")
+    monkeypatch.setenv("SLIPPAGE_BPS", "0.0")
+
+    config = AppConfig.from_env()
+    dataset = _build_cross_day_dataset()
+    strategy_instances = (
+        StrategyInstanceSpec(
+            strategy_instance_id="mom-a",
+            strategy_id="momentum",
+            universe=("BTC-PERP-INTX",),
+            strategy_params={"lookback_candles": 2, "signal_scale": 150.0},
+            risk_overrides={"max_abs_position": 0.5},
+        ),
+    )
+    sleeve_run = run_portfolio_research(
+        base_runs_dir=tmp_path,
+        dataset=dataset,
+        config=config,
+        strategy_instances=strategy_instances,
+        optimizer_config=PortfolioOptimizationConfig(
+            lookback_days=1,
+            max_strategy_weight=1.0,
+            turnover_cost_bps=0.0,
+        ),
+        starting_capital_usdc=10_000.0,
+    ).sleeve_run_ids[0]
+
+    portfolio = run_portfolio_research_from_sleeves(
+        base_runs_dir=tmp_path,
+        dataset=dataset,
+        optimizer_config=PortfolioOptimizationConfig(
+            lookback_days=1,
+            max_strategy_weight=1.0,
+            turnover_cost_bps=0.0,
+        ),
+        starting_capital_usdc=10_000.0,
+        sleeve_run_ids=(sleeve_run,),
+    )
+
+    manifest = json.loads((portfolio.run_dir / "manifest.json").read_text(encoding="utf-8"))
+
+    assert manifest["strategy_instances"] == [
+        {
+            "strategy_instance_id": "mom-a",
+            "strategy_id": "momentum",
+            "universe": ["BTC-PERP-INTX"],
+            "strategy_params": {"lookback_candles": 2, "signal_scale": 150.0},
+            "risk_overrides": {"max_abs_position": 0.5},
+        }
+    ]

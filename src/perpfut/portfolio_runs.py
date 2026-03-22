@@ -88,6 +88,7 @@ class ResolvedStrategySleeve:
     run_id: str
     run_dir: Path
     analysis: StrategySleeveAnalysis
+    strategy_instance_payload: dict[str, object]
 
 
 def run_portfolio_research(
@@ -156,10 +157,7 @@ def run_portfolio_research_from_sleeves(
         starting_capital_usdc=starting_capital_usdc,
         sleeves=sleeves,
         strategy_instances=[
-            {
-                "strategy_instance_id": sleeve.analysis.strategy_instance_id,
-                "strategy_id": sleeve.analysis.strategy_id,
-            }
+            dict(sleeve.strategy_instance_payload)
             for sleeve in sleeves
         ],
     )
@@ -344,10 +342,16 @@ def load_or_run_strategy_sleeve_research(
         config_fingerprint=config_fingerprint,
     )
     if cached_run_dir is not None:
+        analysis = _coerce_sleeve_analysis(load_strategy_sleeve_analysis(cached_run_dir))
+        manifest = _load_json(cached_run_dir / "manifest.json")
         return ResolvedStrategySleeve(
             run_id=cached_run_dir.name,
             run_dir=cached_run_dir,
-            analysis=_coerce_sleeve_analysis(load_strategy_sleeve_analysis(cached_run_dir)),
+            analysis=analysis,
+            strategy_instance_payload=_coerce_strategy_instance_payload(
+                manifest.get("strategy_instance"),
+                analysis=analysis,
+            ),
         )
 
     result = run_strategy_sleeve(
@@ -360,6 +364,7 @@ def load_or_run_strategy_sleeve_research(
         run_id=result.run_id,
         run_dir=result.run_dir,
         analysis=result.sleeve_analysis,
+        strategy_instance_payload=strategy_instance.to_payload(),
     )
 
 
@@ -371,10 +376,16 @@ def load_strategy_sleeve_research(
     run_dir = base_runs_dir / "backtests" / "sleeves" / run_id
     if not run_dir.exists():
         raise FileNotFoundError(f"strategy sleeve not found: {run_id}")
+    analysis = _coerce_sleeve_analysis(load_strategy_sleeve_analysis(run_dir))
+    manifest = _load_json(run_dir / "manifest.json")
     return ResolvedStrategySleeve(
         run_id=run_id,
         run_dir=run_dir,
-        analysis=_coerce_sleeve_analysis(load_strategy_sleeve_analysis(run_dir)),
+        analysis=analysis,
+        strategy_instance_payload=_coerce_strategy_instance_payload(
+            manifest.get("strategy_instance"),
+            analysis=analysis,
+        ),
     )
 
 
@@ -494,6 +505,23 @@ def _validate_unique_strategy_instance_ids(sleeves: list[ResolvedStrategySleeve]
                 f"selected sleeve runs contain duplicate strategy_instance_id '{strategy_instance_id}'"
             )
         seen_strategy_instance_ids.add(strategy_instance_id)
+
+
+def _coerce_strategy_instance_payload(
+    payload: object,
+    *,
+    analysis: StrategySleeveAnalysis,
+) -> dict[str, object]:
+    if isinstance(payload, dict):
+        return {
+            key: value
+            for key, value in payload.items()
+            if isinstance(key, str)
+        }
+    return {
+        "strategy_instance_id": analysis.strategy_instance_id,
+        "strategy_id": analysis.strategy_id,
+    }
 
 
 def _find_cached_sleeve_run(
