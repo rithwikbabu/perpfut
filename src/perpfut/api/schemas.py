@@ -23,6 +23,11 @@ class RunSummaryResponse(BaseModel):
     resumed_from_run_id: str | None = None
 
 
+class RunsListResponse(BaseModel):
+    items: list[RunSummaryResponse]
+    count: int
+
+
 class ArtifactDocumentResponse(BaseModel):
     run_id: str
     data: dict[str, Any]
