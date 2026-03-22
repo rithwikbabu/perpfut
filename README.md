@@ -39,6 +39,30 @@ python3 -m perpfut products --limit 5
 python3 -m perpfut paper --iterations 1
 ```
 
+## Operator Console
+
+The local operator stack is split into:
+
+- Python API at `127.0.0.1:8000`
+- Next.js dashboard at `127.0.0.1:3000`
+
+Start the API:
+
+```bash
+python3 -m perpfut api
+```
+
+Start the frontend in another terminal:
+
+```bash
+cd apps/web
+npm ci
+npm run dev
+```
+
+The frontend polls the API every 2 seconds. It is local-only, exposes paper-run
+controls, and keeps live mode read-only.
+
 ## Design Principles
 
 - Keep pure trading logic separate from exchange adapters.
@@ -57,3 +81,4 @@ python3 -m perpfut paper --iterations 1
 
 - Runbook: `docs/runbook.md`
 - MVP readiness gates: `docs/mvp-readiness.md`
+- Operator API and UI contract: `docs/operator-api.md`
