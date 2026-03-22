@@ -150,6 +150,24 @@ export type BacktestRunRequest = {
   slippageBps?: number;
 };
 
+export type DatasetSummaryResponse = {
+  datasetId: string;
+  createdAt: string;
+  fingerprint: string;
+  source: string;
+  version: string;
+  products: string[];
+  start: string;
+  end: string;
+  granularity: string;
+  candleCounts: Record<string, number>;
+};
+
+export type DatasetsListResponse = {
+  items: DatasetSummaryResponse[];
+  count: number;
+};
+
 export type BacktestJobStatusResponse = {
   job_id: string;
   status: string;

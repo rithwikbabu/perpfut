@@ -24,6 +24,7 @@ import {
   type BacktestsListResponse,
   type BacktestSuiteDetailResponse,
   type BacktestSuitesListResponse,
+  type DatasetsListResponse,
 } from "@/lib/perpfut-api";
 
 
@@ -280,8 +281,12 @@ export function BacktestsShell() {
   const [feedback, setFeedback] = useState<ControlFeedback | null>(null);
   const [pendingLaunch, setPendingLaunch] = useState(false);
   const [selectedSuiteId, setSelectedSuiteId] = useState<string | null>(null);
+  const [selectedDatasetId, setSelectedDatasetId] = useState<string | null>(null);
 
   const backtests = useSWR<BacktestsListResponse>("/backtests", fetchJson, {
+    refreshInterval: 2000,
+  });
+  const datasets = useSWR<DatasetsListResponse>("/datasets", fetchJson, {
     refreshInterval: 2000,
   });
   const suites = useSWR<BacktestSuitesListResponse>("/backtest-suites", fetchJson, {
@@ -296,6 +301,17 @@ export function BacktestsShell() {
   );
 
   useEffect(() => {
+    const nextDatasetId = datasets.data?.items[0]?.datasetId ?? null;
+    if (!selectedDatasetId && nextDatasetId) {
+      setSelectedDatasetId(nextDatasetId);
+      return;
+    }
+    if (selectedDatasetId && datasets.data && !datasets.data.items.some((item) => item.datasetId === selectedDatasetId)) {
+      setSelectedDatasetId(nextDatasetId);
+    }
+  }, [selectedDatasetId, datasets.data]);
+
+  useEffect(() => {
     const nextSuiteId = suites.data?.items[0]?.suite_id ?? null;
     if (!selectedSuiteId && nextSuiteId) {
       setSelectedSuiteId(nextSuiteId);
@@ -307,7 +323,7 @@ export function BacktestsShell() {
   }, [selectedSuiteId, suites.data]);
 
   async function refreshBacktests() {
-    await Promise.all([backtests.mutate(), suites.mutate(), selectedSuite.mutate()]);
+    await Promise.all([backtests.mutate(), datasets.mutate(), suites.mutate(), selectedSuite.mutate()]);
   }
 
   async function handleLaunch(event: React.FormEvent<HTMLFormElement>) {
@@ -366,6 +382,7 @@ export function BacktestsShell() {
     suites.data?.latest_job ??
     null;
   const latestSuite = suites.data?.items[0] ?? null;
+  const selectedDataset = datasets.data?.items.find((item) => item.datasetId === selectedDatasetId) ?? null;
   const hasConsoleError = backtests.error || suites.error;
 
   return (
@@ -410,25 +427,25 @@ export function BacktestsShell() {
 
             <div className="border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
               <div className="mono text-[10px] uppercase tracking-[0.28em] text-[var(--warning)]">
-                Latest Suite
+                Selected Dataset
               </div>
-              {latestSuite ? (
+              {selectedDataset ? (
                 <>
-                  <div className="mt-3 text-sm text-[var(--text)]">{latestSuite.suite_id}</div>
+                  <div className="mt-3 text-sm text-[var(--text)]">{selectedDataset.datasetId}</div>
                   <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
-                    {latestSuite.strategies.join(", ")} · {latestSuite.products.join(", ")}
+                    {selectedDataset.products.join(", ")} · {selectedDataset.source} · fp {selectedDataset.fingerprint.slice(0, 10)}
                   </p>
                   <div className="mt-3 grid gap-2 sm:grid-cols-2">
                     <MetricChip
-                      label="Date Range"
-                      value={formatDateRange(latestSuite.date_range_start, latestSuite.date_range_end)}
+                      label="Coverage"
+                      value={formatDateRange(selectedDataset.start, selectedDataset.end)}
                     />
-                    <MetricChip label="Sharpe" value={formatSharpe(latestSuite.sharpe_ratio)} />
+                    <MetricChip label="Status" value="cached" />
                   </div>
                 </>
               ) : (
                 <p className="mt-3 text-sm leading-6 text-[var(--muted)]">
-                  No completed backtest suites yet.
+                  No cached datasets yet.
                 </p>
               )}
             </div>
@@ -645,6 +662,59 @@ export function BacktestsShell() {
               )}
             </ShellPanel>
           </div>
+
+          <ShellPanel className="p-5">
+            <ShellHeader
+              eyebrow="Datasets"
+              title="Cached dataset registry"
+              action={`${datasets.data?.count ?? 0} loaded`}
+            />
+            {datasets.isLoading ? (
+              <LoadingBlock title="Loading cached datasets." />
+            ) : datasets.error ? (
+              <ErrorBlock message={datasets.error.message} />
+            ) : datasets.data && datasets.data.items.length > 0 ? (
+              <div className="space-y-3">
+                {datasets.data.items.map((dataset) => {
+                  const totalCandles = Object.values(dataset.candleCounts).reduce(
+                    (sum, value) => sum + value,
+                    0,
+                  );
+                  const active = dataset.datasetId === selectedDatasetId;
+                  return (
+                    <button
+                      key={dataset.datasetId}
+                      type="button"
+                      onClick={() => startTransition(() => setSelectedDatasetId(dataset.datasetId))}
+                      className={`w-full border px-4 py-4 text-left transition ${
+                        active
+                          ? "border-[var(--border-strong)] bg-[rgba(84,191,255,0.08)]"
+                          : "border-[var(--border)] bg-[var(--bg-elevated)] hover:border-[var(--border-strong)]"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="text-sm font-medium text-[var(--text)]">{dataset.datasetId}</div>
+                        <div className="mono text-[10px] uppercase tracking-[0.24em] text-[var(--muted)]">
+                          {formatTimestamp(dataset.createdAt)}
+                        </div>
+                      </div>
+                      <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
+                        {dataset.products.join(", ")} · {dataset.source} · {dataset.granularity}
+                      </p>
+                      <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                        <MetricChip label="Coverage" value={formatDateRange(dataset.start, dataset.end)} />
+                        <MetricChip label="Fingerprint" value={dataset.fingerprint.slice(0, 12)} />
+                        <MetricChip label="Candles" value={formatCount(totalCandles)} />
+                        <MetricChip label="Status" value={active ? "selected" : "cached"} tone={active ? "accent" : "text"} />
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <LoadingBlock title="No cached datasets yet." />
+            )}
+          </ShellPanel>
 
           <div className="grid gap-4 xl:grid-cols-[0.92fr_1.08fr]">
             <ShellPanel className="p-5">
