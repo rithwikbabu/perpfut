@@ -2,6 +2,15 @@
 
 import Link from "next/link";
 import { startTransition, useEffect, useState } from "react";
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import useSWR from "swr";
 
 import { ConsoleNav } from "@/components/console-nav";
@@ -25,6 +34,9 @@ import {
   type BacktestSuiteDetailResponse,
   type BacktestSuitesListResponse,
   type DatasetsListResponse,
+  type PortfolioRunComparisonResponse,
+  type PortfolioRunDetailResponse,
+  type PortfolioRunsListResponse,
   type StrategySleeveComparisonResponse,
   type StrategySleeveDetailResponse,
   type StrategySleevesListResponse,
@@ -286,6 +298,7 @@ export function BacktestsShell() {
   const [selectedSuiteId, setSelectedSuiteId] = useState<string | null>(null);
   const [selectedDatasetId, setSelectedDatasetId] = useState<string | null>(null);
   const [selectedSleeveRunId, setSelectedSleeveRunId] = useState<string | null>(null);
+  const [selectedPortfolioRunId, setSelectedPortfolioRunId] = useState<string | null>(null);
 
   const backtests = useSWR<BacktestsListResponse>("/backtests", fetchJson, {
     refreshInterval: 2000,
@@ -296,6 +309,16 @@ export function BacktestsShell() {
   const suites = useSWR<BacktestSuitesListResponse>("/backtest-suites", fetchJson, {
     refreshInterval: 2000,
   });
+  const portfolioRuns = useSWR<PortfolioRunsListResponse>(
+    selectedDatasetId ? `/portfolio-runs?datasetId=${encodeURIComponent(selectedDatasetId)}` : "/portfolio-runs",
+    fetchJson,
+    { refreshInterval: 2000 },
+  );
+  const portfolioComparison = useSWR<PortfolioRunComparisonResponse>(
+    selectedDatasetId ? `/portfolio-run-comparisons?datasetId=${encodeURIComponent(selectedDatasetId)}` : "/portfolio-run-comparisons",
+    fetchJson,
+    { refreshInterval: 2000 },
+  );
   const sleeves = useSWR<StrategySleevesListResponse>(
     selectedDatasetId ? `/sleeves?datasetId=${encodeURIComponent(selectedDatasetId)}` : "/sleeves",
     fetchJson,
@@ -312,6 +335,15 @@ export function BacktestsShell() {
       : null;
   const selectedSleeve = useSWR<StrategySleeveDetailResponse>(
     effectiveSelectedSleeveRunId ? `/sleeves/${effectiveSelectedSleeveRunId}` : null,
+    fetchJson,
+    { refreshInterval: 2000 },
+  );
+  const effectiveSelectedPortfolioRunId =
+    selectedPortfolioRunId && portfolioRuns.data?.items.some((item) => item.run_id === selectedPortfolioRunId)
+      ? selectedPortfolioRunId
+      : null;
+  const selectedPortfolio = useSWR<PortfolioRunDetailResponse>(
+    effectiveSelectedPortfolioRunId ? `/portfolio-runs/${effectiveSelectedPortfolioRunId}` : null,
     fetchJson,
     { refreshInterval: 2000 },
   );
@@ -347,6 +379,7 @@ export function BacktestsShell() {
 
   useEffect(() => {
     setSelectedSleeveRunId(null);
+    setSelectedPortfolioRunId(null);
   }, [selectedDatasetId]);
 
   useEffect(() => {
@@ -360,15 +393,33 @@ export function BacktestsShell() {
     }
   }, [selectedSleeveRunId, sleeves.data]);
 
+  useEffect(() => {
+    const nextPortfolioRunId = portfolioRuns.data?.items[0]?.run_id ?? null;
+    if (!selectedPortfolioRunId && nextPortfolioRunId) {
+      setSelectedPortfolioRunId(nextPortfolioRunId);
+      return;
+    }
+    if (
+      selectedPortfolioRunId &&
+      portfolioRuns.data &&
+      !portfolioRuns.data.items.some((item) => item.run_id === selectedPortfolioRunId)
+    ) {
+      setSelectedPortfolioRunId(nextPortfolioRunId);
+    }
+  }, [selectedPortfolioRunId, portfolioRuns.data]);
+
   async function refreshBacktests() {
     await Promise.all([
       backtests.mutate(),
       datasets.mutate(),
       suites.mutate(),
+      portfolioRuns.mutate(),
+      portfolioComparison.mutate(),
       sleeves.mutate(),
       sleeveComparison.mutate(),
       selectedSuite.mutate(),
       selectedSleeve.mutate(),
+      selectedPortfolio.mutate(),
     ]);
   }
 
@@ -864,6 +915,214 @@ export function BacktestsShell() {
             </ShellPanel>
           </div>
 
+          <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+            <ShellPanel className="p-5">
+              <ShellHeader
+                eyebrow="Optimizer"
+                title="Portfolio optimizer runs"
+                action={`${portfolioRuns.data?.count ?? 0} loaded`}
+              />
+              {portfolioRuns.isLoading ? (
+                <LoadingBlock title="Loading portfolio optimizer runs." />
+              ) : portfolioRuns.error ? (
+                <ErrorBlock message={portfolioRuns.error.message} />
+              ) : portfolioRuns.data && portfolioRuns.data.items.length > 0 ? (
+                <div className="space-y-3">
+                  {portfolioRuns.data.items.map((run) => {
+                    const active = run.run_id === selectedPortfolioRunId;
+                    return (
+                      <button
+                        key={run.run_id}
+                        type="button"
+                        onClick={() => startTransition(() => setSelectedPortfolioRunId(run.run_id))}
+                        className={`w-full border px-4 py-4 text-left transition ${
+                          active
+                            ? "border-[var(--border-strong)] bg-[rgba(84,191,255,0.08)]"
+                            : "border-[var(--border)] bg-[var(--bg-elevated)] hover:border-[var(--border-strong)]"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-4">
+                          <div className="text-sm font-medium text-[var(--text)]">{run.run_id}</div>
+                          <div className="mono text-[10px] uppercase tracking-[0.24em] text-[var(--muted)]">
+                            {formatTimestamp(run.created_at)}
+                          </div>
+                        </div>
+                        <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
+                          {run.strategy_instance_ids.join(", ") || "no sleeves"} · {formatDateRange(run.date_range_start, run.date_range_end)}
+                        </p>
+                        <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                          <MetricChip label="Sharpe" value={formatSharpe(run.sharpe_ratio)} tone="accent" />
+                          <MetricChip label="Return" value={formatSignedPercent(run.total_return_pct)} tone="accent" />
+                          <MetricChip label="Turnover" value={formatMoney(run.total_turnover_usdc)} />
+                          <MetricChip label="Gross Weight" value={formatPercent(run.avg_gross_weight)} />
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <LoadingBlock title="No portfolio optimizer runs for the selected dataset yet." />
+              )}
+            </ShellPanel>
+
+            <ShellPanel className="p-5">
+              <ShellHeader
+                eyebrow="Detail"
+                title="Selected optimizer run"
+                action={effectiveSelectedPortfolioRunId ?? "awaiting optimizer"}
+              />
+              {selectedPortfolio.isLoading ? (
+                <LoadingBlock title="Loading portfolio optimizer detail." />
+              ) : selectedPortfolio.error ? (
+                <ErrorBlock message={selectedPortfolio.error.message} />
+              ) : effectiveSelectedPortfolioRunId && selectedPortfolio.data ? (
+                <div className="space-y-4">
+                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                    <MetricChip label="Sharpe" value={formatSharpe(selectedPortfolio.data.analysis.sharpe_ratio)} tone="accent" />
+                    <MetricChip label="Return" value={formatSignedPercent(selectedPortfolio.data.analysis.total_return_pct)} tone="accent" />
+                    <MetricChip label="Turnover" value={formatMoney(selectedPortfolio.data.analysis.total_turnover_usdc)} />
+                    <MetricChip label="Gross Weight" value={formatPercent(selectedPortfolio.data.analysis.avg_gross_weight)} />
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <MetricChip
+                      label="Dataset Coverage"
+                      value={formatDateRange(
+                        selectedPortfolio.data.analysis.date_range_start,
+                        selectedPortfolio.data.analysis.date_range_end,
+                      )}
+                    />
+                    <MetricChip
+                      label="Strategy Lineup"
+                      value={selectedPortfolio.data.analysis.strategy_instance_ids.join(", ") || "none"}
+                    />
+                  </div>
+                  <div className="grid gap-4 xl:grid-cols-3">
+                    <div className="border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
+                      <div className="mono text-[10px] uppercase tracking-[0.24em] text-[var(--muted)]">Equity Curve</div>
+                      <div className="mt-4 h-48">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={selectedPortfolio.data.analysis.equity_series}>
+                            <CartesianGrid stroke="rgba(120,138,164,0.16)" vertical={false} />
+                            <XAxis dataKey="label" hide />
+                            <YAxis hide />
+                            <Tooltip
+                              contentStyle={{
+                                backgroundColor: "#08121d",
+                                border: "1px solid rgba(120,138,164,0.24)",
+                                color: "#edf3ff",
+                              }}
+                            />
+                            <Line type="monotone" dataKey="value" stroke="#8fd6ff" strokeWidth={2} dot={false} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                    <div className="border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
+                      <div className="mono text-[10px] uppercase tracking-[0.24em] text-[var(--muted)]">Drawdown</div>
+                      <div className="mt-4 h-48">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={selectedPortfolio.data.analysis.drawdown_series}>
+                            <CartesianGrid stroke="rgba(120,138,164,0.16)" vertical={false} />
+                            <XAxis dataKey="label" hide />
+                            <YAxis hide />
+                            <Tooltip
+                              contentStyle={{
+                                backgroundColor: "#08121d",
+                                border: "1px solid rgba(120,138,164,0.24)",
+                                color: "#edf3ff",
+                              }}
+                            />
+                            <Line type="monotone" dataKey="value" stroke="#f1bb67" strokeWidth={2} dot={false} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                    <div className="border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
+                      <div className="mono text-[10px] uppercase tracking-[0.24em] text-[var(--muted)]">Gross Weight</div>
+                      <div className="mt-4 h-48">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={selectedPortfolio.data.analysis.gross_weight_series}>
+                            <CartesianGrid stroke="rgba(120,138,164,0.16)" vertical={false} />
+                            <XAxis dataKey="label" hide />
+                            <YAxis hide />
+                            <Tooltip
+                              contentStyle={{
+                                backgroundColor: "#08121d",
+                                border: "1px solid rgba(120,138,164,0.24)",
+                                color: "#edf3ff",
+                              }}
+                            />
+                            <Line type="monotone" dataKey="value" stroke="#7ce3c1" strokeWidth={2} dot={false} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+                    <div className="overflow-x-auto border border-[var(--border)] bg-[var(--bg-elevated)]">
+                      <table className="min-w-full text-left text-sm">
+                        <thead className="border-b border-[var(--border)] text-[var(--muted)]">
+                          <tr>
+                            <th className="px-4 py-3 font-medium">Date</th>
+                            <th className="px-4 py-3 font-medium">Cash</th>
+                            <th className="px-4 py-3 font-medium">Gross</th>
+                            <th className="px-4 py-3 font-medium">Turnover</th>
+                            <th className="px-4 py-3 font-medium">Weights</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selectedPortfolio.data.weights.slice(0, 8).map((snapshot) => (
+                            <tr key={snapshot.date} className="border-b border-[var(--border)] last:border-b-0">
+                              <td className="px-4 py-3 text-[var(--text)]">{snapshot.date}</td>
+                              <td className="px-4 py-3 text-[var(--text)]">{formatPercent(snapshot.cash_weight)}</td>
+                              <td className="px-4 py-3 text-[var(--text)]">{formatPercent(snapshot.gross_weight)}</td>
+                              <td className="px-4 py-3 text-[var(--muted)]">{formatPercent(snapshot.turnover)}</td>
+                              <td className="px-4 py-3 text-[var(--muted)]">
+                                {Object.entries(snapshot.weights)
+                                  .map(([instanceId, weight]) => `${instanceId} ${formatPercent(weight)}`)
+                                  .join(" · ")}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="overflow-x-auto border border-[var(--border)] bg-[var(--bg-elevated)]">
+                      <table className="min-w-full text-left text-sm">
+                        <thead className="border-b border-[var(--border)] text-[var(--muted)]">
+                          <tr>
+                            <th className="px-4 py-3 font-medium">Strategy Sleeve</th>
+                            <th className="px-4 py-3 font-medium">Strategy</th>
+                            <th className="px-4 py-3 font-medium">Gross P&amp;L</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selectedPortfolio.data.contributions.items.map((item) => (
+                            <tr key={item.strategy_instance_id} className="border-b border-[var(--border)] last:border-b-0">
+                              <td className="px-4 py-3 text-[var(--text)]">{item.strategy_instance_id}</td>
+                              <td className="px-4 py-3 text-[var(--muted)]">{item.strategy_id}</td>
+                              <td className="px-4 py-3 text-[var(--text)]">{formatMoney(item.total_gross_pnl_usdc)}</td>
+                            </tr>
+                          ))}
+                          <tr className="border-t border-[var(--border)]">
+                            <td className="px-4 py-3 text-[var(--muted)]" colSpan={2}>
+                              Transaction Costs
+                            </td>
+                            <td className="px-4 py-3 text-[var(--warning)]">
+                              {formatMoney(-selectedPortfolio.data.contributions.transaction_cost_total_usdc)}
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <LoadingBlock title="Select an optimizer run to inspect weights and performance." />
+              )}
+            </ShellPanel>
+          </div>
+
           <div className="grid gap-4 xl:grid-cols-[0.92fr_1.08fr]">
             <ShellPanel className="p-5">
               <ShellHeader
@@ -913,12 +1172,12 @@ export function BacktestsShell() {
             <ShellPanel className="p-5">
               <ShellHeader
                 eyebrow="Comparison"
-                title="Selected suite and sleeve rankings"
-                action={selectedSuite.data?.ranking_policy ?? sleeveComparison.data?.ranking_policy ?? "awaiting rankings"}
+                title="Selected suite, sleeve, and optimizer rankings"
+                action={selectedSuite.data?.ranking_policy ?? sleeveComparison.data?.ranking_policy ?? portfolioComparison.data?.ranking_policy ?? "awaiting rankings"}
               />
-              {selectedSuite.isLoading && !selectedSuite.data && sleeveComparison.isLoading && !sleeveComparison.data ? (
-                <LoadingBlock title="Loading suite and sleeve rankings." />
-              ) : selectedSuite.data || sleeveComparison.data || selectedSuite.error || sleeveComparison.error ? (
+              {selectedSuite.isLoading && !selectedSuite.data && sleeveComparison.isLoading && !sleeveComparison.data && portfolioComparison.isLoading && !portfolioComparison.data ? (
+                <LoadingBlock title="Loading suite, sleeve, and optimizer rankings." />
+              ) : selectedSuite.data || sleeveComparison.data || portfolioComparison.data || selectedSuite.error || sleeveComparison.error || portfolioComparison.error ? (
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <div className="mono text-[10px] uppercase tracking-[0.24em] text-[var(--muted)]">Suite ranking</div>
@@ -1004,9 +1263,48 @@ export function BacktestsShell() {
                       <LoadingBlock title="No strategy sleeve rankings for the selected dataset yet." />
                     )}
                   </div>
+                  <div className="space-y-2">
+                    <div className="mono text-[10px] uppercase tracking-[0.24em] text-[var(--muted)]">Optimizer ranking</div>
+                    {portfolioComparison.error ? (
+                      <ErrorBlock message={portfolioComparison.error.message} />
+                    ) : portfolioComparison.isLoading && !portfolioComparison.data ? (
+                      <LoadingBlock title="Loading optimizer rankings." />
+                    ) : portfolioComparison.data && portfolioComparison.data.items.length > 0 ? (
+                      <div className="overflow-x-auto border border-[var(--border)] bg-[var(--bg-elevated)]">
+                        <table className="min-w-full text-left text-sm">
+                          <thead className="border-b border-[var(--border)] text-[var(--muted)]">
+                            <tr>
+                              <th className="px-4 py-3 font-medium">Rank</th>
+                              <th className="px-4 py-3 font-medium">Run</th>
+                              <th className="px-4 py-3 font-medium">Sharpe</th>
+                              <th className="px-4 py-3 font-medium">Return</th>
+                              <th className="px-4 py-3 font-medium">P&amp;L</th>
+                              <th className="px-4 py-3 font-medium">Turnover</th>
+                              <th className="px-4 py-3 font-medium">Lineup</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {portfolioComparison.data.items.map((item) => (
+                              <tr key={item.run_id} className="border-b border-[var(--border)] last:border-b-0">
+                                <td className="px-4 py-3 text-[var(--text)]">{item.rank}</td>
+                                <td className="px-4 py-3 text-[var(--text)]">{item.run_id}</td>
+                                <td className="px-4 py-3 text-[var(--text)]">{formatSharpe(item.sharpe_ratio)}</td>
+                                <td className="px-4 py-3 text-[var(--accent)]">{formatSignedPercent(item.total_return_pct)}</td>
+                                <td className="px-4 py-3 text-[var(--text)]">{formatMoney(item.total_pnl_usdc)}</td>
+                                <td className="px-4 py-3 text-[var(--muted)]">{formatMoney(item.total_turnover_usdc)}</td>
+                                <td className="px-4 py-3 text-[var(--muted)]">{item.strategy_instance_ids.join(", ")}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <LoadingBlock title="No optimizer rankings for the selected dataset yet." />
+                    )}
+                  </div>
                 </div>
               ) : (
-                <LoadingBlock title="Select a dataset to inspect suite and sleeve rankings." />
+                <LoadingBlock title="Select a dataset to inspect suite, sleeve, and optimizer rankings." />
               )}
             </ShellPanel>
           </div>

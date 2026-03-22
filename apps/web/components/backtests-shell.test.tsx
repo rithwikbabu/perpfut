@@ -147,6 +147,140 @@ const defaultSleeveDetailResponse = {
   },
 };
 
+const defaultPortfolioRunsResponse = {
+  items: [
+    {
+      run_id: "portfolio-run-1",
+      created_at: "2026-03-22T05:45:00Z",
+      dataset_id: "dataset-1",
+      date_range_start: "2026-03-20T12:00:00+00:00",
+      date_range_end: "2026-03-21T12:00:00+00:00",
+      sharpe_ratio: 1.92,
+      total_pnl_usdc: 220,
+      total_return_pct: 0.022,
+      max_drawdown_usdc: 45,
+      max_drawdown_pct: 0.0045,
+      total_turnover_usdc: 3100,
+      avg_gross_weight: 0.58,
+      max_gross_weight: 0.82,
+      strategy_instance_ids: ["mom-fast", "mean-slow"],
+    },
+  ],
+  count: 1,
+};
+
+const defaultPortfolioComparisonResponse = {
+  dataset_id: "dataset-1",
+  ranking_policy: "rank by sharpe_ratio desc",
+  items: [
+    {
+      rank: 1,
+      run_id: "portfolio-run-1",
+      created_at: "2026-03-22T05:45:00Z",
+      dataset_id: "dataset-1",
+      date_range_start: "2026-03-20T12:00:00+00:00",
+      date_range_end: "2026-03-21T12:00:00+00:00",
+      sharpe_ratio: 1.92,
+      total_pnl_usdc: 220,
+      total_return_pct: 0.022,
+      max_drawdown_usdc: 45,
+      max_drawdown_pct: 0.0045,
+      total_turnover_usdc: 3100,
+      avg_gross_weight: 0.58,
+      max_gross_weight: 0.82,
+      strategy_instance_ids: ["mom-fast", "mean-slow"],
+    },
+  ],
+};
+
+const defaultPortfolioDetailResponse = {
+  run_id: "portfolio-run-1",
+  manifest: {
+    run_id: "portfolio-run-1",
+    dataset_id: "dataset-1",
+  },
+  config: {
+    optimizer: {
+      lookback_days: 60,
+    },
+  },
+  state: {
+    run_id: "portfolio-run-1",
+    ending_equity_usdc: 10220,
+  },
+  analysis: {
+    run_id: "portfolio-run-1",
+    dataset_id: "dataset-1",
+    dataset_fingerprint: "fp-1",
+    dataset_source: "coinbase",
+    dataset_version: "1",
+    date_range_start: "2026-03-20T12:00:00+00:00",
+    date_range_end: "2026-03-21T12:00:00+00:00",
+    created_at: "2026-03-22T05:45:00Z",
+    starting_capital_usdc: 10000,
+    ending_equity_usdc: 10220,
+    total_pnl_usdc: 220,
+    total_return_pct: 0.022,
+    sharpe_ratio: 1.92,
+    max_drawdown_usdc: 45,
+    max_drawdown_pct: 0.0045,
+    total_turnover_usdc: 3100,
+    transaction_cost_total_usdc: 12,
+    avg_gross_weight: 0.58,
+    max_gross_weight: 0.82,
+    strategy_instance_ids: ["mom-fast", "mean-slow"],
+    sleeve_run_ids: ["sleeve-run-1", "sleeve-run-2"],
+    equity_series: [{ label: "2026-03-20", value: 10000 }, { label: "2026-03-21", value: 10220 }],
+    drawdown_series: [{ label: "2026-03-20", value: 0 }, { label: "2026-03-21", value: 45 }],
+    gross_return_series: [{ label: "2026-03-20", value: 0.012 }, { label: "2026-03-21", value: 0.01 }],
+    net_return_series: [{ label: "2026-03-20", value: 0.011 }, { label: "2026-03-21", value: 0.009 }],
+    turnover_series_usdc: [{ label: "2026-03-20", value: 1500 }, { label: "2026-03-21", value: 1600 }],
+    transaction_cost_series_usdc: [{ label: "2026-03-20", value: 6 }, { label: "2026-03-21", value: 6 }],
+    gross_weight_series: [{ label: "2026-03-20", value: 0.52 }, { label: "2026-03-21", value: 0.58 }],
+    contribution_totals_usdc: { "mom-fast": 140, "mean-slow": 80 },
+  },
+  weights: [
+    {
+      date: "2026-03-20",
+      weights: { "mom-fast": 0.35, "mean-slow": 0.17 },
+      cash_weight: 0.48,
+      turnover: 0.22,
+      gross_weight: 0.52,
+    },
+  ],
+  diagnostics: [
+    {
+      date: "2026-03-20",
+      expected_returns: { "mom-fast": 0.01, "mean-slow": 0.007 },
+      covariance_matrix: {
+        "mom-fast": { "mom-fast": 0.002, "mean-slow": 0.001 },
+        "mean-slow": { "mom-fast": 0.001, "mean-slow": 0.002 },
+      },
+      constraint_status: "optimized",
+    },
+  ],
+  contributions: {
+    items: [
+      {
+        strategy_instance_id: "mom-fast",
+        strategy_id: "momentum",
+        sleeve_run_id: "sleeve-run-1",
+        total_gross_pnl_usdc: 140,
+        daily_gross_pnl_series: [{ label: "2026-03-20", value: 140 }],
+      },
+      {
+        strategy_instance_id: "mean-slow",
+        strategy_id: "mean_reversion",
+        sleeve_run_id: "sleeve-run-2",
+        total_gross_pnl_usdc: 80,
+        daily_gross_pnl_series: [{ label: "2026-03-20", value: 80 }],
+      },
+    ],
+    transaction_cost_total_usdc: 12,
+    transaction_cost_series_usdc: [{ label: "2026-03-20", value: 12 }],
+  },
+};
+
 describe("BacktestsShell", () => {
   beforeEach(() => {
     mockedFetchJson.mockReset();
@@ -289,6 +423,15 @@ describe("BacktestsShell", () => {
           ],
         };
       }
+      if (path === "/portfolio-runs" || path === "/portfolio-runs?datasetId=dataset-1") {
+        return defaultPortfolioRunsResponse;
+      }
+      if (path === "/portfolio-run-comparisons" || path === "/portfolio-run-comparisons?datasetId=dataset-1") {
+        return defaultPortfolioComparisonResponse;
+      }
+      if (path === "/portfolio-runs/portfolio-run-1") {
+        return defaultPortfolioDetailResponse;
+      }
       if (path === "/sleeves" || path === "/sleeves?datasetId=dataset-1") {
         return defaultSleeveListResponse;
       }
@@ -344,7 +487,9 @@ describe("BacktestsShell", () => {
     expect(screen.queryByText("No cached datasets yet.")).not.toBeInTheDocument();
     expect(screen.getByText("selected")).toBeInTheDocument();
     expect(screen.getByText("Strategy sleeve runs")).toBeInTheDocument();
-    expect(screen.getByText("Selected suite and sleeve rankings")).toBeInTheDocument();
+    expect(screen.getByText("Portfolio optimizer runs")).toBeInTheDocument();
+    expect(screen.getByText("Selected optimizer run")).toBeInTheDocument();
+    expect(screen.getByText("Selected suite, sleeve, and optimizer rankings")).toBeInTheDocument();
     expect(screen.getByText("Selected sleeve attribution")).toBeInTheDocument();
     expect(screen.getByText("Completed backtest runs")).toBeInTheDocument();
     expect((await screen.findAllByText("Completed strategy 1 of 2: momentum")).length).toBeGreaterThan(0);
@@ -352,6 +497,8 @@ describe("BacktestsShell", () => {
     expect(screen.getByRole("link", { name: "run-2" })).toHaveAttribute("href", "/backtests/run-2");
     expect(screen.getAllByText("mom-fast").length).toBeGreaterThan(0);
     expect(screen.getAllByText("BTC-PERP-INTX").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("portfolio-run-1").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("1.92").length).toBeGreaterThan(0);
 
     await userEvent.click(screen.getByRole("button", { name: "SOL-PERP-INTX" }));
     await userEvent.click(screen.getByRole("button", { name: "Launch Backtest Suite" }));
@@ -471,6 +618,15 @@ describe("BacktestsShell", () => {
           ],
         };
       }
+      if (path === "/portfolio-runs" || path === "/portfolio-runs?datasetId=dataset-1") {
+        return defaultPortfolioRunsResponse;
+      }
+      if (path === "/portfolio-run-comparisons" || path === "/portfolio-run-comparisons?datasetId=dataset-1") {
+        return defaultPortfolioComparisonResponse;
+      }
+      if (path === "/portfolio-runs/portfolio-run-1") {
+        return defaultPortfolioDetailResponse;
+      }
       if (path === "/sleeves" || path === "/sleeves?datasetId=dataset-1") {
         return defaultSleeveListResponse;
       }
@@ -508,6 +664,12 @@ describe("BacktestsShell", () => {
       if (path === "/backtest-suites") {
         return { items: [], count: 0, active_job: null };
       }
+      if (path === "/portfolio-runs") {
+        return { items: [], count: 0 };
+      }
+      if (path === "/portfolio-run-comparisons") {
+        return { dataset_id: null, ranking_policy: "rank by sharpe_ratio desc", items: [] };
+      }
       if (path === "/sleeves") {
         return { items: [], count: 0 };
       }
@@ -533,6 +695,8 @@ describe("BacktestsShell", () => {
         path === "/backtests" ||
         path === "/backtest-suites" ||
         path === "/datasets" ||
+        path === "/portfolio-runs" ||
+        path === "/portfolio-run-comparisons" ||
         path === "/sleeves" ||
         path === "/sleeve-comparisons"
       ) {
@@ -546,7 +710,8 @@ describe("BacktestsShell", () => {
     expect((await screen.findAllByText("Loading cached datasets.")).length).toBeGreaterThan(0);
     expect(await screen.findByText("Loading completed backtest suites.")).toBeInTheDocument();
     expect(screen.getByText("Loading completed backtest runs.")).toBeInTheDocument();
-    expect(screen.getByText("Select a dataset to inspect suite and sleeve rankings.")).toBeInTheDocument();
+    expect(screen.getByText("Loading portfolio optimizer runs.")).toBeInTheDocument();
+    expect(screen.getByText("Select a dataset to inspect suite, sleeve, and optimizer rankings.")).toBeInTheDocument();
   });
 
   it("renders console empty states when there are no suites or runs", async () => {
@@ -559,6 +724,12 @@ describe("BacktestsShell", () => {
       }
       if (path === "/backtest-suites") {
         return { items: [], count: 0, active_job: null };
+      }
+      if (path === "/portfolio-runs") {
+        return { items: [], count: 0 };
+      }
+      if (path === "/portfolio-run-comparisons") {
+        return { dataset_id: null, ranking_policy: "rank by sharpe_ratio desc", items: [] };
       }
       if (path === "/sleeves") {
         return { items: [], count: 0 };
@@ -574,9 +745,13 @@ describe("BacktestsShell", () => {
     expect((await screen.findAllByText("No cached datasets yet.")).length).toBeGreaterThan(0);
     expect(await screen.findByText("No completed backtest suites yet.")).toBeInTheDocument();
     expect(screen.getByText("No strategy sleeves for the selected dataset yet.")).toBeInTheDocument();
-    expect(screen.getByText("Selected suite and sleeve rankings")).toBeInTheDocument();
+    expect(screen.getByText("Portfolio optimizer runs")).toBeInTheDocument();
+    expect(screen.getByText("Selected suite, sleeve, and optimizer rankings")).toBeInTheDocument();
+    expect(screen.getByText("No portfolio optimizer runs for the selected dataset yet.")).toBeInTheDocument();
+    expect(screen.getByText("Select an optimizer run to inspect weights and performance.")).toBeInTheDocument();
     expect(screen.getByText("Select a suite to inspect ranking candidates.")).toBeInTheDocument();
     expect(screen.getByText("No strategy sleeve rankings for the selected dataset yet.")).toBeInTheDocument();
+    expect(screen.getByText("No optimizer rankings for the selected dataset yet.")).toBeInTheDocument();
     expect(screen.getByText("No completed backtest runs yet.")).toBeInTheDocument();
   });
 
@@ -590,6 +765,12 @@ describe("BacktestsShell", () => {
       }
       if (path === "/backtest-suites") {
         return { items: [], count: 0, active_job: null };
+      }
+      if (path === "/portfolio-runs") {
+        return { items: [], count: 0 };
+      }
+      if (path === "/portfolio-run-comparisons") {
+        return { dataset_id: null, ranking_policy: "rank by sharpe_ratio desc", items: [] };
       }
       if (path === "/sleeves") {
         return { items: [], count: 0 };
@@ -653,6 +834,12 @@ describe("BacktestsShell", () => {
       if (path === "/backtest-suites") {
         return { items: [], count: 0, active_job: null, latest_job: null };
       }
+      if (path === "/portfolio-runs") {
+        return { items: [], count: 0 };
+      }
+      if (path === "/portfolio-run-comparisons") {
+        return { dataset_id: null, ranking_policy: "rank by sharpe_ratio desc", items: [] };
+      }
       throw new Error(`unexpected path ${path}`);
     });
 
@@ -672,6 +859,12 @@ describe("BacktestsShell", () => {
       }
       if (path === "/backtest-suites") {
         return { items: [], count: 0, active_job: null, latest_job: null };
+      }
+      if (path === "/portfolio-runs") {
+        return { items: [], count: 0 };
+      }
+      if (path === "/portfolio-run-comparisons") {
+        return { dataset_id: null, ranking_policy: "rank by sharpe_ratio desc", items: [] };
       }
       if (path === "/sleeves") {
         return { items: [], count: 0 };
@@ -727,6 +920,24 @@ describe("BacktestsShell", () => {
       }
       if (path === "/backtest-suites") {
         return { items: [], count: 0, active_job: null, latest_job: null };
+      }
+      if (path === "/portfolio-runs" || path === "/portfolio-runs?datasetId=dataset-1") {
+        return defaultPortfolioRunsResponse;
+      }
+      if (path === "/portfolio-runs?datasetId=dataset-2") {
+        return { items: [], count: 0 };
+      }
+      if (path === "/portfolio-run-comparisons") {
+        return defaultPortfolioComparisonResponse;
+      }
+      if (path === "/portfolio-run-comparisons?datasetId=dataset-1") {
+        return defaultPortfolioComparisonResponse;
+      }
+      if (path === "/portfolio-run-comparisons?datasetId=dataset-2") {
+        return { dataset_id: "dataset-2", ranking_policy: "rank by sharpe_ratio desc", items: [] };
+      }
+      if (path === "/portfolio-runs/portfolio-run-1") {
+        return defaultPortfolioDetailResponse;
       }
       if (path === "/sleeves") {
         return defaultSleeveListResponse;
@@ -839,6 +1050,15 @@ describe("BacktestsShell", () => {
           ],
         };
       }
+      if (path === "/portfolio-runs" || path === "/portfolio-runs?datasetId=dataset-1") {
+        return defaultPortfolioRunsResponse;
+      }
+      if (path === "/portfolio-run-comparisons" || path === "/portfolio-run-comparisons?datasetId=dataset-1") {
+        throw new ApiError("optimizer comparison unavailable", 500);
+      }
+      if (path === "/portfolio-runs/portfolio-run-1") {
+        return defaultPortfolioDetailResponse;
+      }
       if (path === "/sleeves" || path === "/sleeves?datasetId=dataset-1") {
         return defaultSleeveListResponse;
       }
@@ -855,6 +1075,7 @@ describe("BacktestsShell", () => {
 
     expect(await screen.findByRole("link", { name: "momentum" })).toHaveAttribute("href", "/backtests/run-1");
     expect(await screen.findByText("sleeve comparison unavailable")).toBeInTheDocument();
+    expect(await screen.findByText("optimizer comparison unavailable")).toBeInTheDocument();
   });
 });
 
