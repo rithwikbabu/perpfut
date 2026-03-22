@@ -382,7 +382,10 @@ export function BacktestsShell() {
     suites.data?.latest_job ??
     null;
   const latestSuite = suites.data?.items[0] ?? null;
-  const selectedDataset = datasets.data?.items.find((item) => item.datasetId === selectedDatasetId) ?? null;
+  const selectedDataset =
+    datasets.data?.items.find((item) => item.datasetId === selectedDatasetId) ??
+    datasets.data?.items[0] ??
+    null;
   const hasConsoleError = backtests.error || suites.error;
 
   return (
