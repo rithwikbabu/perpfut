@@ -192,8 +192,10 @@ Example request:
 The list endpoints are intentionally split:
 
 - `/api/datasets` returns cached dataset summaries
-- `/api/backtests` returns completed backtest runs and the current active job
-- `/api/backtest-suites` returns completed suite manifests and the current active job
+- `/api/backtests` returns completed backtest runs, the current `active_job`,
+  and the most recent terminal `latest_job`
+- `/api/backtest-suites` returns completed suite manifests, the current
+  `active_job`, and the most recent terminal `latest_job`
 - `/api/backtest-suites/{suiteId}` returns the ranked suite comparison payload
 
 ## Constraints

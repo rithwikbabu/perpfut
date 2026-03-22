@@ -170,6 +170,7 @@ The nested decision objects use the same field names written into run artifacts.
 - `items`: newest-first completed backtest runs with canonical metrics
 - `count`: number of returned runs
 - `active_job`: the current in-flight backtest job, or `null`
+- `latest_job`: the most recent terminal backtest job, or `null`
 
 `GET /api/backtests/{runId}` returns:
 
@@ -182,6 +183,7 @@ The nested decision objects use the same field names written into run artifacts.
 - `items`: newest-first suite manifests
 - `count`
 - `active_job`
+- `latest_job`
 
 `GET /api/backtest-suites/{suiteId}` returns:
 
