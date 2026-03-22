@@ -45,6 +45,24 @@ class BacktestSuiteComparison:
     items: tuple[BacktestSuiteComparisonEntry, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class BacktestRunSummary:
+    run_id: str
+    created_at: str | None
+    suite_id: str | None
+    dataset_id: str | None
+    product_id: str | None
+    strategy_id: str | None
+    total_pnl_usdc: float
+    total_return_pct: float
+    max_drawdown_usdc: float
+    max_drawdown_pct: float
+    turnover_usdc: float
+    fill_count: int
+    avg_abs_exposure_pct: float
+    max_abs_exposure_pct: float
+
+
 def list_backtest_suites(base_runs_dir: Path, *, limit: int = 10) -> list[BacktestSuiteSummary]:
     suites_dir = base_runs_dir / "backtests" / "suites"
     if not suites_dir.exists():
@@ -54,7 +72,10 @@ def list_backtest_suites(base_runs_dir: Path, *, limit: int = 10) -> list[Backte
         manifest_path = suite_dir / "manifest.json"
         if not manifest_path.exists():
             continue
-        manifest = _load_json(manifest_path)
+        try:
+            manifest = _load_json(manifest_path)
+        except (OSError, json.JSONDecodeError, ValueError):
+            continue
         summaries.append(
             BacktestSuiteSummary(
                 suite_id=suite_dir.name,
@@ -63,6 +84,43 @@ def list_backtest_suites(base_runs_dir: Path, *, limit: int = 10) -> list[Backte
                 products=tuple(_as_str_list(manifest.get("products"))),
                 strategies=tuple(_as_str_list(manifest.get("strategies"))),
                 run_ids=tuple(_as_str_list(manifest.get("run_ids"))),
+            )
+        )
+        if len(summaries) >= limit:
+            break
+    return summaries
+
+
+def list_backtest_runs(base_runs_dir: Path, *, limit: int = 10) -> list[BacktestRunSummary]:
+    runs_dir = base_runs_dir / "backtests" / "runs"
+    if not runs_dir.exists():
+        return []
+    summaries: list[BacktestRunSummary] = []
+    for run_dir in sorted((path for path in runs_dir.iterdir() if path.is_dir()), reverse=True):
+        manifest_path = run_dir / "manifest.json"
+        if not manifest_path.exists():
+            continue
+        try:
+            manifest = load_run_manifest(run_dir)
+            analysis = analyze_run(run_dir)
+        except (FileNotFoundError, OSError, json.JSONDecodeError, ValueError):
+            continue
+        summaries.append(
+            BacktestRunSummary(
+                run_id=run_dir.name,
+                created_at=_as_str(manifest.get("created_at")),
+                suite_id=_as_str(manifest.get("suite_id")),
+                dataset_id=_as_str(manifest.get("dataset_id")),
+                product_id=_as_str(manifest.get("product_id")),
+                strategy_id=analysis.strategy_id,
+                total_pnl_usdc=analysis.total_pnl_usdc,
+                total_return_pct=analysis.total_return_pct,
+                max_drawdown_usdc=analysis.max_drawdown_usdc,
+                max_drawdown_pct=analysis.max_drawdown_pct,
+                turnover_usdc=analysis.turnover_usdc,
+                fill_count=analysis.fill_count,
+                avg_abs_exposure_pct=analysis.avg_abs_exposure_pct,
+                max_abs_exposure_pct=analysis.max_abs_exposure_pct,
             )
         )
         if len(summaries) >= limit:

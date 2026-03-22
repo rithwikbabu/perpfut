@@ -149,3 +149,108 @@ class PaperRunStatusResponse(BaseModel):
     interval_seconds: int | None = None
     starting_collateral_usdc: float | None = None
     log_path: str | None = None
+
+
+class BacktestRunRequest(BaseModel):
+    product_ids: list[str] = Field(alias="productIds", min_length=1)
+    strategy_ids: list[str] = Field(alias="strategyIds", min_length=1)
+    start: str
+    end: str
+    granularity: str = "ONE_MINUTE"
+    lookback_candles: int | None = Field(alias="lookbackCandles", default=None, ge=1)
+    signal_scale: float | None = Field(alias="signalScale", default=None)
+    starting_collateral_usdc: float | None = Field(alias="startingCollateralUsdc", default=None, gt=0)
+    max_abs_position: float | None = Field(alias="maxAbsPosition", default=None, gt=0)
+    max_gross_position: float | None = Field(alias="maxGrossPosition", default=None, gt=0)
+    max_leverage: float | None = Field(alias="maxLeverage", default=None, gt=0)
+    slippage_bps: float | None = Field(alias="slippageBps", default=None, ge=0)
+
+    model_config = {
+        "populate_by_name": True,
+    }
+
+
+class BacktestJobStatusResponse(BaseModel):
+    job_id: str
+    status: str
+    pid: int | None = None
+    created_at: str
+    started_at: str | None = None
+    finished_at: str | None = None
+    suite_id: str | None = None
+    dataset_id: str | None = None
+    run_ids: list[str] = Field(default_factory=list)
+    error: str | None = None
+    log_path: str | None = None
+    request: BacktestRunRequest
+
+
+class BacktestRunSummaryResponse(BaseModel):
+    run_id: str
+    created_at: str | None = None
+    suite_id: str | None = None
+    dataset_id: str | None = None
+    product_id: str | None = None
+    strategy_id: str | None = None
+    total_pnl_usdc: float
+    total_return_pct: float
+    max_drawdown_usdc: float
+    max_drawdown_pct: float
+    turnover_usdc: float
+    fill_count: int
+    avg_abs_exposure_pct: float
+    max_abs_exposure_pct: float
+
+
+class BacktestsListResponse(BaseModel):
+    items: list[BacktestRunSummaryResponse]
+    count: int
+    active_job: BacktestJobStatusResponse | None = None
+
+
+class BacktestRunDetailResponse(BaseModel):
+    run_id: str
+    manifest: dict[str, Any]
+    state: dict[str, Any]
+    analysis: RunAnalysisResponse
+
+
+class BacktestSuiteSummaryResponse(BaseModel):
+    suite_id: str
+    created_at: str | None = None
+    dataset_id: str | None = None
+    products: list[str] = Field(default_factory=list)
+    strategies: list[str] = Field(default_factory=list)
+    run_ids: list[str] = Field(default_factory=list)
+
+
+class BacktestSuitesListResponse(BaseModel):
+    items: list[BacktestSuiteSummaryResponse]
+    count: int
+    active_job: BacktestJobStatusResponse | None = None
+
+
+class BacktestSuiteComparisonItemResponse(BaseModel):
+    rank: int
+    run_id: str
+    strategy_id: str | None = None
+    total_pnl_usdc: float
+    total_return_pct: float
+    max_drawdown_usdc: float
+    max_drawdown_pct: float
+    turnover_usdc: float
+    fill_count: int
+    avg_abs_exposure_pct: float
+    max_abs_exposure_pct: float
+    decision_counts: dict[str, int]
+
+
+class BacktestSuiteDetailResponse(BaseModel):
+    suite_id: str
+    created_at: str | None = None
+    dataset_id: str | None = None
+    products: list[str] = Field(default_factory=list)
+    strategies: list[str] = Field(default_factory=list)
+    run_ids: list[str] = Field(default_factory=list)
+    ranking_policy: str
+    items: list[BacktestSuiteComparisonItemResponse]
