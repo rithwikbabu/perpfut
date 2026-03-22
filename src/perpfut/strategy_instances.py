@@ -12,6 +12,15 @@ from .strategy_registry import validate_strategy_id
 
 JSONScalar = str | int | float | bool | None
 
+_ALLOWED_STRATEGY_INSTANCE_FIELDS = frozenset(
+    {
+        "strategy_instance_id",
+        "strategy_id",
+        "universe",
+        "strategy_params",
+        "risk_overrides",
+    }
+)
 _ALLOWED_STRATEGY_PARAMS = frozenset({"lookback_candles", "signal_scale"})
 _ALLOWED_RISK_OVERRIDES = frozenset(
     {
@@ -96,6 +105,12 @@ def _parse_strategy_instance(
     index: int,
     source: str,
 ) -> StrategyInstanceSpec:
+    unknown_fields = sorted(set(payload) - _ALLOWED_STRATEGY_INSTANCE_FIELDS)
+    if unknown_fields:
+        raise ValueError(
+            f"strategy instance at index {index} in {source} contains unknown fields: "
+            + ", ".join(unknown_fields)
+        )
     instance_id = _require_non_empty_string(
         payload.get("strategy_instance_id"),
         field_name="strategy_instance_id",
@@ -168,9 +183,14 @@ def _parse_strategy_params(value: Any, *, index: int, source: str) -> dict[str, 
             raise ValueError(
                 f"strategy param '{key}' for strategy instance at index {index} in {source} must be numeric"
             )
-        numeric_value = float(item) if key == "signal_scale" else int(item)
-        if key == "lookback_candles" and numeric_value <= 0:
-            raise ValueError("lookback_candles must be positive")
+        if key == "lookback_candles":
+            if not isinstance(item, int):
+                raise ValueError("lookback_candles must be an integer")
+            numeric_value = int(item)
+            if numeric_value <= 0:
+                raise ValueError("lookback_candles must be positive")
+        else:
+            numeric_value = float(item)
         params[key] = numeric_value
     return params
 
@@ -196,6 +216,8 @@ def _parse_risk_overrides(value: Any, *, index: int, source: str) -> dict[str, f
         numeric_value = float(item)
         if numeric_value < 0.0:
             raise ValueError(f"risk override '{key}' must be non-negative")
+        if key == "max_gross_position" and numeric_value <= 0.0:
+            raise ValueError("risk override 'max_gross_position' must be positive")
         overrides[key] = numeric_value
     return overrides
 

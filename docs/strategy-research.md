@@ -52,13 +52,13 @@ Optional fields:
 
 Allowed `strategy_params` in v1:
 
-- `lookback_candles`
+- `lookback_candles` (integer, strictly positive)
 - `signal_scale`
 
 Allowed `risk_overrides` in v1:
 
 - `max_abs_position`
-- `max_gross_position`
+- `max_gross_position` (strictly positive)
 - `rebalance_threshold`
 - `min_trade_notional_usdc`
 - `max_daily_drawdown_usdc`
@@ -67,9 +67,11 @@ Allowed `risk_overrides` in v1:
 
 - duplicate `strategy_instance_id` values are rejected
 - unknown `strategy_id` values are rejected against the production registry
+- unknown top-level fields are rejected
 - duplicate products in `universe` are rejected
 - unknown parameter keys are rejected
-- numeric overrides must be valid and non-negative
+- `lookback_candles` must remain an integer
+- numeric overrides must be valid, and `max_gross_position` must remain positive
 
 ## Backward compatibility
 

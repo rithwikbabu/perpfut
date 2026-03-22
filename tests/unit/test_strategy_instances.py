@@ -113,6 +113,45 @@ def test_parse_strategy_instance_specs_rejects_boolean_numeric_values() -> None:
         )
 
 
+def test_parse_strategy_instance_specs_rejects_fractional_lookback_and_zero_gross_limit() -> None:
+    with pytest.raises(ValueError, match="lookback_candles must be an integer"):
+        parse_strategy_instance_specs(
+            [
+                {
+                    "strategy_instance_id": "fractional-lookback",
+                    "strategy_id": "momentum",
+                    "universe": ["BTC-PERP-INTX"],
+                    "strategy_params": {"lookback_candles": 3.9},
+                }
+            ]
+        )
+    with pytest.raises(ValueError, match="max_gross_position"):
+        parse_strategy_instance_specs(
+            [
+                {
+                    "strategy_instance_id": "zero-gross",
+                    "strategy_id": "momentum",
+                    "universe": ["BTC-PERP-INTX"],
+                    "risk_overrides": {"max_gross_position": 0.0},
+                }
+            ]
+        )
+
+
+def test_parse_strategy_instance_specs_rejects_unknown_top_level_fields() -> None:
+    with pytest.raises(ValueError, match="unknown fields: universes"):
+        parse_strategy_instance_specs(
+            [
+                {
+                    "strategy_instance_id": "unknown-top-level",
+                    "strategy_id": "momentum",
+                    "universe": ["BTC-PERP-INTX"],
+                    "universes": ["ETH-PERP-INTX"],
+                }
+            ]
+        )
+
+
 def test_parse_strategy_instance_specs_rejects_duplicate_universe_members() -> None:
     with pytest.raises(ValueError, match="duplicate universe product 'BTC-PERP-INTX'"):
         parse_strategy_instance_specs(
