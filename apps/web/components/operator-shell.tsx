@@ -15,8 +15,11 @@ import {
 
 import {
   buildDashboardMetrics,
+  formatCount,
   formatMoney,
+  formatPercent,
   formatSigned,
+  formatSignedPercent,
   formatTimestamp,
 } from "@/lib/dashboard-metrics";
 import {
@@ -269,6 +272,18 @@ function LatestDecisionPanel({ decision }: { decision: LatestDecision | null }) 
   );
 }
 
+function PerformanceUnavailablePanel() {
+  return (
+    <Panel className="p-5">
+      <SectionHeader eyebrow="Performance" title="Canonical analysis unavailable" />
+      <div className="border border-[var(--border)] bg-[var(--bg-elevated)] p-5 text-sm leading-6 text-[var(--muted)]">
+        This run does not yet have a readable canonical analysis payload. Performance cards and
+        charts will populate once the latest run exposes a readable analysis artifact.
+      </div>
+    </Panel>
+  );
+}
+
 function ControlBanner({ feedback }: { feedback: ControlFeedback }) {
   const classes =
     feedback.tone === "success"
@@ -488,6 +503,10 @@ function parsePaperRunRequest(form: typeof DEFAULT_PAPER_FORM): {
   };
 }
 
+function formatTooltipPercent(value: unknown): string {
+  return typeof value === "number" ? `${(value * 100).toFixed(2)}%` : "--";
+}
+
 function formatControlError(error: unknown): ControlFeedback {
   if (error instanceof ApiError) {
     if (error.status === 409) {
@@ -530,6 +549,7 @@ export function OperatorShell() {
 
   const overviewData = overview.data;
   const metrics = overviewData ? buildDashboardMetrics(overviewData) : null;
+  const latestAnalysis = overviewData?.latest_analysis ?? null;
   const latestRun = overviewData?.latest_run;
   const currentProductId = latestRun?.product_id ?? activeRun.data?.product_id ?? form.productId;
   const isLoading = overview.isLoading || runs.isLoading || activeRun.isLoading;
@@ -714,120 +734,171 @@ export function OperatorShell() {
 
           {!error && !isLoading && latestRun && metrics && overviewData ? (
             <>
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                <StatCard
-                  label="Equity"
-                  value={formatMoney(metrics.equityUsd)}
-                  change={`${metrics.equitySeries.length} cycle points`}
-                  tone="accent"
-                />
-                <StatCard
-                  label="Realized PnL"
-                  value={formatMoney(metrics.realizedPnlUsd)}
-                  change={`${formatSigned(metrics.unrealizedPnlUsd)} unrealized`}
-                  tone="accent"
-                />
-                <StatCard
-                  label="Net Position"
-                  value={metrics.quantity === null ? "--" : `${metrics.quantity.toFixed(4)} base`}
-                  change={`target ${formatSigned(metrics.targetPosition, 3)}`}
-                />
-                <StatCard
-                  label="Signal"
-                  value={formatSigned(metrics.lastSignalRaw, 4)}
-                  change={`${metrics.fillCount} fills / ${metrics.eventCount} events`}
-                  tone="warning"
-                />
-              </div>
-
               <LatestDecisionPanel decision={overviewData.latest_decision} />
 
-              <div className="grid gap-4 xl:grid-cols-[1.45fr_1fr]">
-                <Panel className="p-5">
-                  <SectionHeader
-                    eyebrow="Signal"
-                    title="Equity And Realized PnL"
-                    action={`${metrics.equitySeries.length} plotted cycles`}
-                  />
-                  <div className="signal-grid h-80 border border-[var(--border)] p-3">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={metrics.equitySeries}>
-                        <CartesianGrid stroke="rgba(143,214,255,0.1)" vertical={false} />
-                        <XAxis
-                          dataKey="label"
-                          tick={{ fill: "#90a4bf", fontSize: 11 }}
-                          tickLine={false}
-                          axisLine={false}
-                        />
-                        <YAxis
-                          tick={{ fill: "#90a4bf", fontSize: 11 }}
-                          tickLine={false}
-                          axisLine={false}
-                          width={80}
-                        />
-                        <Tooltip
-                          contentStyle={{
-                            border: "1px solid rgba(135, 162, 196, 0.22)",
-                            background: "rgba(8, 12, 20, 0.96)",
-                            color: "#ecf4ff",
-                          }}
-                        />
-                        <Line type="monotone" dataKey="equity" stroke="#8fd6ff" strokeWidth={2.5} dot={false} />
-                        <Line
-                          type="monotone"
-                          dataKey="realizedPnl"
-                          stroke="#f1bb67"
-                          strokeWidth={2}
-                          dot={false}
-                        />
-                      </LineChart>
-                    </ResponsiveContainer>
+              {latestAnalysis ? (
+                <div className="space-y-4">
+                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                    <StatCard
+                      label="Total Return"
+                      value={formatSignedPercent(metrics.totalReturnPct)}
+                      change={`${formatMoney(metrics.totalPnlUsd)} total PnL across ${formatCount(metrics.cycleCount)} cycles`}
+                      tone="accent"
+                    />
+                    <StatCard
+                      label="P&L Stack"
+                      value={formatMoney(metrics.totalPnlUsd)}
+                      change={`${formatMoney(metrics.realizedPnlUsd)} realized / ${formatMoney(metrics.unrealizedPnlUsd)} unrealized`}
+                      tone="accent"
+                    />
+                    <StatCard
+                      label="Max Drawdown"
+                      value={formatPercent(metrics.maxDrawdownPct)}
+                      change={`${formatMoney(metrics.maxDrawdownUsd)} worst peak-to-trough`}
+                    />
+                    <StatCard
+                      label="Turnover / Exposure"
+                      value={`${formatCount(metrics.tradeCount ?? metrics.fillCount)} trades`}
+                      change={`${formatMoney(metrics.turnoverUsd)} turnover / ${formatPercent(metrics.avgAbsExposurePct)} avg exposure`}
+                      tone="warning"
+                    />
                   </div>
-                </Panel>
 
-                <Panel className="p-5">
-                  <SectionHeader
-                    eyebrow="Positioning"
-                    title="Target Versus Current Exposure"
-                    action="derived from cycle artifacts"
-                  />
-                  <div className="signal-grid h-80 border border-[var(--border)] p-3">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={metrics.positionSeries}>
-                        <CartesianGrid stroke="rgba(143,214,255,0.1)" vertical={false} />
-                        <XAxis
-                          dataKey="label"
-                          tick={{ fill: "#90a4bf", fontSize: 11 }}
-                          tickLine={false}
-                          axisLine={false}
-                        />
-                        <YAxis
-                          domain={[-1, 1]}
-                          tick={{ fill: "#90a4bf", fontSize: 11 }}
-                          tickLine={false}
-                          axisLine={false}
-                          width={40}
-                        />
-                        <Tooltip
-                          contentStyle={{
-                            border: "1px solid rgba(135, 162, 196, 0.22)",
-                            background: "rgba(8, 12, 20, 0.96)",
-                            color: "#ecf4ff",
-                          }}
-                        />
-                        <Line type="monotone" dataKey="target" stroke="#8fd6ff" strokeWidth={2.5} dot={false} />
-                        <Line
-                          type="monotone"
-                          dataKey="current"
-                          stroke="#9bf6cf"
-                          strokeWidth={2}
-                          dot={false}
-                        />
-                      </LineChart>
-                    </ResponsiveContainer>
+                  <div className="grid gap-4 xl:grid-cols-3">
+                  <Panel className="p-5 xl:col-span-2">
+                    <SectionHeader
+                      eyebrow="Performance"
+                      title="Equity Curve"
+                      action={`${metrics.equitySeries.length} canonical points`}
+                    />
+                    <div className="signal-grid h-80 border border-[var(--border)] p-3">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={metrics.equitySeries}>
+                          <CartesianGrid stroke="rgba(143,214,255,0.1)" vertical={false} />
+                          <XAxis
+                            dataKey="label"
+                            tick={{ fill: "#90a4bf", fontSize: 11 }}
+                            tickLine={false}
+                            axisLine={false}
+                          />
+                          <YAxis
+                            tick={{ fill: "#90a4bf", fontSize: 11 }}
+                            tickLine={false}
+                            axisLine={false}
+                            width={80}
+                          />
+                          <Tooltip
+                            contentStyle={{
+                              border: "1px solid rgba(135, 162, 196, 0.22)",
+                              background: "rgba(8, 12, 20, 0.96)",
+                              color: "#ecf4ff",
+                            }}
+                          />
+                          <Line type="monotone" dataKey="value" stroke="#8fd6ff" strokeWidth={2.5} dot={false} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </Panel>
+
+                  <Panel className="p-5">
+                    <SectionHeader
+                      eyebrow="Risk"
+                      title="Drawdown"
+                      action={formatPercent(metrics.maxDrawdownPct)}
+                    />
+                    <div className="signal-grid h-80 border border-[var(--border)] p-3">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={metrics.drawdownSeries}>
+                          <CartesianGrid stroke="rgba(143,214,255,0.1)" vertical={false} />
+                          <XAxis
+                            dataKey="label"
+                            tick={{ fill: "#90a4bf", fontSize: 11 }}
+                            tickLine={false}
+                            axisLine={false}
+                          />
+                          <YAxis
+                            tick={{ fill: "#90a4bf", fontSize: 11 }}
+                            tickLine={false}
+                            axisLine={false}
+                            width={80}
+                          />
+                          <Tooltip
+                            contentStyle={{
+                              border: "1px solid rgba(135, 162, 196, 0.22)",
+                              background: "rgba(8, 12, 20, 0.96)",
+                              color: "#ecf4ff",
+                            }}
+                          />
+                          <Line type="monotone" dataKey="value" stroke="#ff6d7b" strokeWidth={2.5} dot={false} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </Panel>
+
+                  <Panel className="p-5 xl:col-span-2">
+                    <SectionHeader
+                      eyebrow="Exposure"
+                      title="Absolute Exposure Timeline"
+                      action={`${formatPercent(metrics.avgAbsExposurePct)} average / ${formatPercent(metrics.maxAbsExposurePct)} peak`}
+                    />
+                    <div className="signal-grid h-72 border border-[var(--border)] p-3">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={metrics.exposureSeries}>
+                          <CartesianGrid stroke="rgba(143,214,255,0.1)" vertical={false} />
+                          <XAxis
+                            dataKey="label"
+                            tick={{ fill: "#90a4bf", fontSize: 11 }}
+                            tickLine={false}
+                            axisLine={false}
+                          />
+                          <YAxis
+                            tickFormatter={(value) => `${Math.round(value * 100)}%`}
+                            tick={{ fill: "#90a4bf", fontSize: 11 }}
+                            tickLine={false}
+                            axisLine={false}
+                            width={56}
+                          />
+                          <Tooltip
+                            contentStyle={{
+                              border: "1px solid rgba(135, 162, 196, 0.22)",
+                              background: "rgba(8, 12, 20, 0.96)",
+                              color: "#ecf4ff",
+                            }}
+                            formatter={(value) => formatTooltipPercent(value)}
+                          />
+                          <Line type="monotone" dataKey="value" stroke="#9bf6cf" strokeWidth={2.5} dot={false} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </Panel>
+
+                  <Panel className="p-5">
+                    <SectionHeader eyebrow="Activity" title="Decision Mix" action={`${Object.keys(metrics.decisionCounts).length} reason codes`} />
+                    <div className="space-y-3">
+                      {Object.entries(metrics.decisionCounts).length > 0 ? (
+                        Object.entries(metrics.decisionCounts)
+                          .sort((left, right) => right[1] - left[1])
+                          .map(([code, count]) => (
+                            <div
+                              key={code}
+                              className="flex items-center justify-between border border-[var(--border)] bg-[var(--bg-elevated)] px-4 py-3 text-sm"
+                            >
+                              <span className="text-[var(--text)]">{code}</span>
+                              <span className="mono text-[var(--accent)]">{count}</span>
+                            </div>
+                          ))
+                      ) : (
+                        <div className="border border-[var(--border)] bg-[var(--bg-elevated)] px-4 py-5 text-sm leading-6 text-[var(--muted)]">
+                          Decision counts will appear once the latest run has a canonical analysis payload.
+                        </div>
+                      )}
+                    </div>
+                  </Panel>
                   </div>
-                </Panel>
-              </div>
+                </div>
+              ) : (
+                <PerformanceUnavailablePanel />
+              )}
 
               <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
                 <Panel className="p-5">

@@ -50,6 +50,44 @@ const overviewResponse = {
   latest_state: {
     equity_usdc: 10125,
   },
+  latest_analysis: {
+    run_id: "20260322T020000000000Z_demo",
+    mode: "paper",
+    product_id: "BTC-PERP-INTX",
+    strategy_id: "momentum",
+    started_at: "2026-03-22T02:00:00Z",
+    ended_at: "2026-03-22T02:10:00Z",
+    cycle_count: 12,
+    starting_equity_usdc: 10000,
+    ending_equity_usdc: 10125,
+    realized_pnl_usdc: 80,
+    unrealized_pnl_usdc: 45,
+    total_pnl_usdc: 125,
+    total_return_pct: 0.0125,
+    max_drawdown_usdc: 40,
+    max_drawdown_pct: 0.004,
+    turnover_usdc: 5200,
+    fill_count: 3,
+    trade_count: 3,
+    avg_abs_exposure_pct: 0.22,
+    max_abs_exposure_pct: 0.35,
+    decision_counts: {
+      filled: 3,
+      below_rebalance_threshold: 9,
+    },
+    equity_series: [
+      { label: "cycle-1", value: 10000 },
+      { label: "cycle-12", value: 10125 },
+    ],
+    drawdown_series: [
+      { label: "cycle-1", value: 0 },
+      { label: "cycle-12", value: 40 },
+    ],
+    exposure_series: [
+      { label: "cycle-1", value: 0.1 },
+      { label: "cycle-12", value: 0.22 },
+    ],
+  },
   latest_decision: {
     cycle_id: "cycle-2",
     mode: "paper",
@@ -187,7 +225,9 @@ describe("OperatorShell", () => {
     renderShell();
 
     expect(await screen.findByText("Start or stop the local paper process")).toBeInTheDocument();
-    expect(await screen.findByText("$10,125")).toBeInTheDocument();
+    expect(await screen.findByText("+1.25%")).toBeInTheDocument();
+    expect(screen.queryByText("Canonical analysis unavailable")).not.toBeInTheDocument();
+    expect(screen.getByText("Equity Curve")).toBeInTheDocument();
     expect(screen.getByText("Latest Cycle Decision")).toBeInTheDocument();
     expect(screen.getByText("Filled a rebalance order toward the target position.")).toBeInTheDocument();
 
@@ -317,6 +357,39 @@ describe("OperatorShell", () => {
     expect(
       screen.getByText("The latest readable run has not produced a normalized decision summary yet.")
     ).toBeInTheDocument();
+  });
+
+  it("renders the performance fallback when canonical analysis is not available yet", async () => {
+    mockedFetchJson.mockImplementation(async (path: string) => {
+      if (path.startsWith("/dashboard/overview")) {
+        return {
+          ...overviewResponse,
+          latest_analysis: null,
+        };
+      }
+      if (path.startsWith("/runs?")) {
+        return runsResponse;
+      }
+      if (path === "/paper-runs/active") {
+        return {
+          active: false,
+          pid: null,
+          started_at: null,
+          run_id: null,
+          product_id: null,
+          iterations: null,
+          interval_seconds: null,
+          starting_collateral_usdc: null,
+          log_path: null,
+        };
+      }
+      throw new Error(`unexpected path ${path}`);
+    });
+
+    renderShell();
+
+    expect(await screen.findByText("Canonical analysis unavailable")).toBeInTheDocument();
+    expect(screen.queryByText("Total Return")).not.toBeInTheDocument();
   });
 
   it("renders a halted decision summary from structured reason fields", async () => {
