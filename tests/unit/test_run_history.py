@@ -125,3 +125,19 @@ def test_find_latest_run_skips_corrupted_state_when_state_required(tmp_path) -> 
     )
 
     assert latest == healthy
+
+
+def test_summarize_runs_skips_experiments_container_without_manifest(tmp_path) -> None:
+    (tmp_path / "experiments").mkdir()
+
+    real_run = tmp_path / "20260102T000000000000Z_real"
+    real_run.mkdir()
+    (real_run / "manifest.json").write_text(
+        json.dumps({"run_id": real_run.name, "mode": "paper", "product_id": "BTC-PERP-INTX"}),
+        encoding="utf-8",
+    )
+    (real_run / "state.json").write_text(json.dumps({"run_id": real_run.name}), encoding="utf-8")
+
+    summaries = summarize_runs(tmp_path, limit=5)
+
+    assert [summary["run_id"] for summary in summaries] == [real_run.name]

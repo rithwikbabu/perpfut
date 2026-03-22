@@ -53,7 +53,12 @@ def analyze_run(run_dir: Path) -> RunAnalysis:
     fills = _collect_fill_rows(run_dir, events)
 
     max_abs_notional = _resolve_max_abs_notional(config)
-    configured_starting_equity = _resolve_starting_equity(config, _resolve_ending_equity(state))
+    configured_starting_equity = _resolve_starting_equity(
+        config,
+        ending_equity=_resolve_ending_equity(state),
+        manifest=manifest,
+        run_dir=run_dir,
+    )
     equity_series = _build_equity_series(positions)
     equity_series = _prepend_configured_starting_equity(equity_series, configured_starting_equity)
     if not equity_series:
@@ -332,13 +337,35 @@ def _resolve_ending_equity(state: dict[str, Any]) -> float:
     return equity if equity is not None else 0.0
 
 
-def _resolve_starting_equity(config: dict[str, Any], ending_equity: float) -> float:
+def _resolve_starting_equity(
+    config: dict[str, Any],
+    *,
+    ending_equity: float,
+    manifest: dict[str, Any],
+    run_dir: Path,
+) -> float:
+    resumed_from_run_id = _as_str(manifest.get("resumed_from_run_id"))
+    if resumed_from_run_id:
+        resumed_state = _load_resumed_state(run_dir, resumed_from_run_id)
+        if resumed_state is not None:
+            return _resolve_ending_equity(resumed_state)
     simulation = config.get("simulation")
     if isinstance(simulation, dict):
         starting_collateral = _as_float(simulation.get("starting_collateral_usdc"))
         if starting_collateral is not None:
             return starting_collateral
     return ending_equity
+
+
+def _load_resumed_state(run_dir: Path, resumed_from_run_id: str) -> dict[str, Any] | None:
+    resumed_run_dir = run_dir.parent / resumed_from_run_id
+    if not resumed_run_dir.exists():
+        return None
+    try:
+        state = load_run_state(resumed_run_dir)
+    except (FileNotFoundError, OSError, json.JSONDecodeError, ValueError):
+        return None
+    return state if isinstance(state, dict) else None
 
 
 def _position_equity(position: dict[str, Any]) -> float:

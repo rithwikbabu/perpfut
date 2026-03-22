@@ -197,6 +197,40 @@ def test_dashboard_overview_exposes_latest_decision_for_live_runs(monkeypatch, t
     assert payload["latest_decision"]["signal"]["target_position"] == 0.25
 
 
+def test_dashboard_overview_degrades_invalid_nested_decision_payloads_to_null(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("RUNS_DIR", str(tmp_path))
+    run_id = "20260322T020000000000Z_beta"
+    run_dir = tmp_path / run_id
+    run_dir.mkdir(parents=True)
+    _write_json(
+        run_dir / "manifest.json",
+        {
+            "run_id": run_id,
+            "created_at": "2026-03-22T02:00:00Z",
+            "mode": "paper",
+            "product_id": "BTC-PERP-INTX",
+        },
+    )
+    _write_json(
+        run_dir / "state.json",
+        {
+            "run_id": run_id,
+            "cycle_id": "cycle-0001",
+            "mode": "paper",
+            "product_id": "BTC-PERP-INTX",
+            "execution_summary": {
+                "reason_code": "filled",
+            },
+        },
+    )
+    client = TestClient(create_app())
+
+    response = client.get("/api/dashboard/overview", params={"mode": "paper", "limit": 1})
+
+    assert response.status_code == 200
+    assert response.json()["latest_decision"] is None
+
+
 def test_run_artifact_endpoints_wrap_documents_and_lists(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("RUNS_DIR", str(tmp_path))
     run_id = "20260322T020000000000Z_beta"

@@ -13,6 +13,7 @@ from .api.server import run_api_server
 from .config import AppConfig
 from .domain import Mode
 from .engine import PaperEngine
+from .experiment import run_experiment
 from .exchange_coinbase import CoinbasePrivateClient, CoinbasePublicClient
 from .live_execution import LiveExecutor
 from .preflight import run_preflight
@@ -49,6 +50,16 @@ def build_parser() -> argparse.ArgumentParser:
     analyze_parser.add_argument("--runs-dir", type=Path, default=None)
     analyze_parser.add_argument("--mode", choices=["paper", "live"], default="paper")
     analyze_parser.add_argument("--product-id", default=None)
+
+    experiment_parser = subparsers.add_parser(
+        "experiment",
+        help="replay a source run through a selected strategy configuration",
+    )
+    experiment_parser.add_argument("--source-run-id", required=True)
+    experiment_parser.add_argument("--strategy-id", required=True)
+    experiment_parser.add_argument("--lookback-candles", type=int, default=None)
+    experiment_parser.add_argument("--signal-scale", type=float, default=None)
+    experiment_parser.add_argument("--runs-dir", type=Path, default=None)
 
     reconcile_parser = subparsers.add_parser(
         "reconcile",
@@ -94,6 +105,8 @@ def main(argv: list[str] | None = None) -> int:
         return _show_state(args)
     if args.command == "analyze":
         return _run_analyze(args)
+    if args.command == "experiment":
+        return _run_experiment(args)
     if args.command == "reconcile":
         return _run_reconcile(args)
     if args.command == "preflight":
@@ -181,6 +194,36 @@ def _run_analyze(args: argparse.Namespace) -> int:
     except (OSError, json.JSONDecodeError, ValueError) as exc:
         raise SystemExit(f"invalid analysis inputs for run: {run_dir.name}") from exc
     print(json.dumps(asdict(analysis), indent=2, sort_keys=True))
+    return 0
+
+
+def _run_experiment(args: argparse.Namespace) -> int:
+    config = AppConfig.from_env().with_overrides(runs_dir=args.runs_dir)
+    try:
+        artifact_store = run_experiment(
+            base_runs_dir=config.runtime.runs_dir,
+            source_run_id=args.source_run_id,
+            strategy_id=args.strategy_id,
+            lookback_candles=args.lookback_candles,
+            signal_scale=args.signal_scale,
+        )
+    except FileNotFoundError as exc:
+        raise SystemExit(str(exc)) from exc
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise SystemExit(str(exc)) from exc
+
+    print(
+        json.dumps(
+            {
+                "analysis_path": str(artifact_store.run_dir / "analysis.json"),
+                "run_id": artifact_store.run_id,
+                "source_run_id": args.source_run_id,
+                "strategy_id": args.strategy_id,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
     return 0
 
 
