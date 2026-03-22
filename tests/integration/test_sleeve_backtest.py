@@ -6,7 +6,11 @@ import pytest
 from perpfut.backtest_data import HistoricalDataset
 from perpfut.config import AppConfig
 from perpfut.domain import Candle
-from perpfut.sleeve_backtest import load_strategy_sleeve_analysis, run_strategy_sleeve
+from perpfut.sleeve_backtest import (
+    compute_strategy_instance_fingerprint,
+    load_strategy_sleeve_analysis,
+    run_strategy_sleeve,
+)
 from perpfut.strategy_instances import StrategyInstanceSpec
 
 
@@ -136,6 +140,44 @@ def test_run_strategy_sleeve_persists_daily_artifacts(tmp_path, monkeypatch) -> 
     assert (result.run_dir / "fills.ndjson").exists()
     assert (result.run_dir / "positions.ndjson").exists()
     assert (result.run_dir / "analysis.json").exists()
+
+
+def test_strategy_instance_fingerprint_normalizes_explicit_defaults(monkeypatch) -> None:
+    monkeypatch.setenv("LOOKBACK_CANDLES", "20")
+    monkeypatch.setenv("SIGNAL_SCALE", "35")
+    monkeypatch.setenv("MAX_ABS_POSITION", "0.5")
+    monkeypatch.setenv("MAX_GROSS_POSITION", "1.0")
+    monkeypatch.setenv("REBALANCE_THRESHOLD", "0.10")
+    monkeypatch.setenv("MIN_TRADE_NOTIONAL_USDC", "10.0")
+    monkeypatch.setenv("MAX_DAILY_DRAWDOWN_USDC", "250.0")
+    config = AppConfig.from_env()
+
+    implicit_defaults = StrategyInstanceSpec(
+        strategy_instance_id="mom-defaults",
+        strategy_id="momentum",
+        universe=("BTC-PERP-INTX", "ETH-PERP-INTX"),
+    )
+    explicit_defaults = StrategyInstanceSpec(
+        strategy_instance_id="mom-defaults",
+        strategy_id="momentum",
+        universe=("BTC-PERP-INTX", "ETH-PERP-INTX"),
+        strategy_params={"lookback_candles": 20, "signal_scale": 35.0},
+        risk_overrides={
+            "max_abs_position": 0.5,
+            "max_gross_position": 1.0,
+            "rebalance_threshold": 0.10,
+            "min_trade_notional_usdc": 10.0,
+            "max_daily_drawdown_usdc": 250.0,
+        },
+    )
+
+    assert compute_strategy_instance_fingerprint(
+        config=config,
+        strategy_instance=implicit_defaults,
+    ) == compute_strategy_instance_fingerprint(
+        config=config,
+        strategy_instance=explicit_defaults,
+    )
 
 
 def test_load_strategy_sleeve_analysis_reconstructs_optimizer_inputs(tmp_path, monkeypatch) -> None:

@@ -168,10 +168,14 @@ def compute_strategy_instance_fingerprint(
     config: AppConfig,
     strategy_instance: StrategyInstanceSpec,
 ) -> str:
+    normalized_strategy = strategy_instance.to_strategy_config(base=config.strategy)
+    normalized_risk = strategy_instance.to_risk_config(base=config.risk)
     payload = {
-        "strategy_instance": strategy_instance.to_payload(),
-        "strategy": asdict(strategy_instance.to_strategy_config(base=config.strategy)),
-        "risk": asdict(strategy_instance.to_risk_config(base=config.risk)),
+        "strategy_instance_id": strategy_instance.strategy_instance_id,
+        "strategy_id": strategy_instance.strategy_id,
+        "universe": list(strategy_instance.universe),
+        "strategy": asdict(normalized_strategy),
+        "risk": asdict(normalized_risk),
         "simulation": asdict(config.simulation),
     }
     return hashlib.sha256(
