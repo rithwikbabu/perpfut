@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from typing import Any
-
-import numpy as np
 
 from .analysis import SeriesPoint
 
@@ -98,14 +97,11 @@ def optimize_strategy_portfolio(
 
     aligned_dates = _aligned_dates(sleeves)
     strategy_instance_ids = tuple(sleeve.strategy_instance_id for sleeve in sleeves)
-    returns_matrix = np.array(
-        [
-            [point.value for point in sleeve.daily_returns]
-            for sleeve in sleeves
-        ],
-        dtype=float,
-    ).T
-    previous_weights = np.zeros(len(sleeves), dtype=float)
+    returns_matrix = [
+        [point.value for point in sleeve.daily_returns]
+        for sleeve in sleeves
+    ]
+    previous_weights = [0.0 for _ in sleeves]
     cumulative_value = 1.0
     daily_gross_returns: list[SeriesPoint] = []
     daily_net_returns: list[SeriesPoint] = []
@@ -115,30 +111,40 @@ def optimize_strategy_portfolio(
     diagnostics: list[PortfolioOptimizationDiagnostic] = []
 
     for day_index, date_label in enumerate(aligned_dates):
-        history = returns_matrix[max(0, day_index - optimizer_config.lookback_days) : day_index]
-        if history.size == 0:
-            weights = np.zeros(len(sleeves), dtype=float)
-            mu = np.zeros(len(sleeves), dtype=float)
-            cov = np.zeros((len(sleeves), len(sleeves)), dtype=float)
+        history_start = max(0, day_index - optimizer_config.lookback_days)
+        history = [
+            [
+                returns_matrix[strategy_index][history_index]
+                for strategy_index in range(len(sleeves))
+            ]
+            for history_index in range(history_start, day_index)
+        ]
+        if not history:
+            weights = [0.0 for _ in sleeves]
+            mu = [0.0 for _ in sleeves]
+            cov = [
+                [0.0 for _ in sleeves]
+                for _ in sleeves
+            ]
             constraint_status = "insufficient_history"
         else:
-            mu = np.mean(history, axis=0)
+            mu = _mean_vector(history)
             cov = _estimate_covariance(
                 history,
                 shrinkage=optimizer_config.covariance_shrinkage,
                 ridge_penalty=optimizer_config.ridge_penalty,
             )
-            raw_scores = np.linalg.solve(
-                cov + (optimizer_config.ridge_penalty * np.eye(len(sleeves))),
-                mu,
-            )
+            raw_scores = _solve_linear_system(cov, mu)
             weights = _project_long_only_weights(
                 raw_scores,
                 max_weight=optimizer_config.max_strategy_weight,
             )
             constraint_status = "optimized"
-        turnover = float(np.sum(np.abs(weights - previous_weights)))
-        gross_return = float(np.dot(weights, returns_matrix[day_index]))
+        turnover = sum(abs(weight - previous_weight) for weight, previous_weight in zip(weights, previous_weights))
+        gross_return = sum(
+            weight * returns_matrix[strategy_index][day_index]
+            for strategy_index, weight in enumerate(weights)
+        )
         trading_cost = turnover * (optimizer_config.turnover_cost_bps / 10_000.0)
         net_return = gross_return - trading_cost
         cumulative_value *= 1.0 + net_return
@@ -150,9 +156,9 @@ def optimize_strategy_portfolio(
                     strategy_instance_ids[index]: float(weight)
                     for index, weight in enumerate(weights)
                 },
-                cash_weight=float(max(1.0 - np.sum(weights), 0.0)),
+                cash_weight=float(max(1.0 - sum(weights), 0.0)),
                 turnover=turnover,
-                gross_weight=float(np.sum(weights)),
+                gross_weight=float(sum(weights)),
             )
         )
         diagnostics.append(
@@ -164,7 +170,7 @@ def optimize_strategy_portfolio(
                 },
                 covariance_matrix={
                     strategy_instance_ids[row]: {
-                        strategy_instance_ids[column]: float(cov[row, column])
+                        strategy_instance_ids[column]: float(cov[row][column])
                         for column in range(len(sleeves))
                     }
                     for row in range(len(sleeves))
@@ -176,7 +182,7 @@ def optimize_strategy_portfolio(
         daily_net_returns.append(SeriesPoint(label=date_label, value=net_return))
         daily_turnover.append(SeriesPoint(label=date_label, value=turnover))
         cumulative_series.append(SeriesPoint(label=date_label, value=cumulative_value))
-        previous_weights = weights
+        previous_weights = list(weights)
 
     return PortfolioOptimizationResult(
         strategy_instance_ids=strategy_instance_ids,
@@ -199,42 +205,69 @@ def _aligned_dates(sleeves: list[StrategySleeveReturnStream]) -> tuple[str, ...]
 
 
 def _estimate_covariance(
-    history: np.ndarray,
+    history: list[list[float]],
     *,
     shrinkage: float,
     ridge_penalty: float,
-) -> np.ndarray:
-    if history.shape[0] == 1:
-        base = np.zeros((history.shape[1], history.shape[1]), dtype=float)
+) -> list[list[float]]:
+    dimensions = len(history[0])
+    if len(history) == 1:
+        base = [
+            [0.0 for _ in range(dimensions)]
+            for _ in range(dimensions)
+        ]
     else:
-        base = np.cov(history, rowvar=False, ddof=1)
-        if np.isscalar(base):
-            base = np.array([[float(base)]], dtype=float)
-    diagonal = np.diag(np.diag(base))
-    shrunk = ((1.0 - shrinkage) * base) + (shrinkage * diagonal)
-    return shrunk + (ridge_penalty * np.eye(history.shape[1]))
+        means = _mean_vector(history)
+        denominator = len(history) - 1
+        base = []
+        for row in range(dimensions):
+            covariance_row = []
+            for column in range(dimensions):
+                covariance = sum(
+                    (observation[row] - means[row]) * (observation[column] - means[column])
+                    for observation in history
+                ) / denominator
+                covariance_row.append(covariance)
+            base.append(covariance_row)
+    diagonal = [
+        [base[row][row] if row == column else 0.0 for column in range(dimensions)]
+        for row in range(dimensions)
+    ]
+    shrunk = []
+    for row in range(dimensions):
+        shrunk_row = []
+        for column in range(dimensions):
+            shrunk_row.append(
+                ((1.0 - shrinkage) * base[row][column]) + (shrinkage * diagonal[row][column])
+            )
+        shrunk.append(shrunk_row)
+    for row in range(dimensions):
+        shrunk[row][row] += ridge_penalty
+    return shrunk
 
 
-def _project_long_only_weights(raw_scores: np.ndarray, *, max_weight: float) -> np.ndarray:
-    positive = np.maximum(raw_scores, 0.0)
-    if np.sum(positive) <= 1e-12:
-        return np.zeros_like(positive)
+def _project_long_only_weights(raw_scores: list[float], *, max_weight: float) -> list[float]:
+    positive = [max(score, 0.0) for score in raw_scores]
+    if sum(positive) <= 1e-12:
+        return [0.0 for _ in positive]
 
-    weights = np.zeros_like(positive)
+    weights = [0.0 for _ in positive]
     remaining_budget = 1.0
-    active = positive > 0.0
-    while np.any(active) and remaining_budget > 1e-12:
-        active_scores = positive[active]
-        total_score = float(np.sum(active_scores))
+    active = [score > 0.0 for score in positive]
+    while any(active) and remaining_budget > 1e-12:
+        active_scores = [score for score, is_active in zip(positive, active) if is_active]
+        total_score = float(sum(active_scores))
         if total_score <= 1e-12:
             break
-        proposed = (remaining_budget * active_scores) / total_score
-        if np.all(proposed <= max_weight + 1e-12):
-            weights[active] += proposed
+        proposed = [(remaining_budget * score) / total_score for score in active_scores]
+        if all(weight <= max_weight + 1e-12 for weight in proposed):
+            active_indexes = [index for index, is_active in enumerate(active) if is_active]
+            for offset, index in enumerate(active_indexes):
+                weights[index] += proposed[offset]
             remaining_budget = 0.0
             break
-        active_indexes = np.flatnonzero(active)
         clipped_any = False
+        active_indexes = [index for index, is_active in enumerate(active) if is_active]
         for local_index, proposed_weight in enumerate(proposed):
             if proposed_weight > max_weight + 1e-12:
                 absolute_index = active_indexes[local_index]
@@ -243,10 +276,46 @@ def _project_long_only_weights(raw_scores: np.ndarray, *, max_weight: float) -> 
                 active[absolute_index] = False
                 clipped_any = True
         if not clipped_any:
-            weights[active] += proposed
+            for offset, index in enumerate(active_indexes):
+                weights[index] += proposed[offset]
             remaining_budget = 0.0
             break
     return weights
+
+
+def _mean_vector(history: list[list[float]]) -> list[float]:
+    dimensions = len(history[0])
+    return [
+        sum(observation[index] for observation in history) / len(history)
+        for index in range(dimensions)
+    ]
+
+
+def _solve_linear_system(matrix: list[list[float]], vector: list[float]) -> list[float]:
+    size = len(vector)
+    augmented = [
+        [float(matrix[row][column]) for column in range(size)] + [float(vector[row])]
+        for row in range(size)
+    ]
+    for pivot_index in range(size):
+        pivot_row = max(
+            range(pivot_index, size),
+            key=lambda row_index: abs(augmented[row_index][pivot_index]),
+        )
+        if math.isclose(augmented[pivot_row][pivot_index], 0.0, abs_tol=1e-12):
+            return [0.0 for _ in range(size)]
+        if pivot_row != pivot_index:
+            augmented[pivot_index], augmented[pivot_row] = augmented[pivot_row], augmented[pivot_index]
+        pivot_value = augmented[pivot_index][pivot_index]
+        for column in range(pivot_index, size + 1):
+            augmented[pivot_index][column] /= pivot_value
+        for row in range(size):
+            if row == pivot_index:
+                continue
+            factor = augmented[row][pivot_index]
+            for column in range(pivot_index, size + 1):
+                augmented[row][column] -= factor * augmented[pivot_index][column]
+    return [augmented[row][size] for row in range(size)]
 
 
 def _parse_series_point(value: Any) -> SeriesPoint:
