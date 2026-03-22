@@ -229,6 +229,7 @@ describe("OperatorShell", () => {
     expect(await screen.findByText("Start or stop the local paper process")).toBeInTheDocument();
     expect(await screen.findByText("+1.25%")).toBeInTheDocument();
     expect(screen.queryByText("Canonical analysis unavailable")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Backtests/i })).toHaveAttribute("href", "/backtests");
     expect(screen.getByText("Equity Curve")).toBeInTheDocument();
     expect(screen.getByText("Latest Cycle Decision")).toBeInTheDocument();
     expect(screen.getByText("Filled a rebalance order toward the target position.")).toBeInTheDocument();

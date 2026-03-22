@@ -33,6 +33,7 @@ import {
   type PaperRunStatusResponse,
   type RunsListResponse,
 } from "@/lib/perpfut-api";
+import { ConsoleNav } from "@/components/console-nav";
 
 
 const DEFAULT_PAPER_FORM = {
@@ -681,22 +682,7 @@ export function OperatorShell() {
             <p className="mt-3 max-w-xs text-sm leading-6 text-[var(--muted)]">
               Local-first monitoring for paper execution, artifact inspection, and operator control.
             </p>
-            <div className="mt-8 space-y-2">
-              {["Overview", "Runs", "Paper Control", "Live Readiness"].map((item, index) => (
-                <Link
-                  key={item}
-                  href={index === 0 ? "/" : "#"}
-                  className={`flex items-center justify-between border px-3 py-3 text-sm tracking-wide transition ${
-                    index === 0
-                      ? "border-[var(--border-strong)] bg-[rgba(84,191,255,0.08)]"
-                      : "border-transparent bg-transparent text-[var(--muted)] hover:border-[var(--border)] hover:text-[var(--text)]"
-                  }`}
-                >
-                  <span>{item}</span>
-                  <span className="mono text-[11px]">{String(index + 1).padStart(2, "0")}</span>
-                </Link>
-              ))}
-            </div>
+            <ConsoleNav active="overview" />
           </div>
 
           <div className="space-y-4">
