@@ -1,0 +1,75 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+  --bg: #04070d;
+  --bg-elevated: rgba(13, 19, 31, 0.86);
+  --bg-panel: rgba(18, 26, 41, 0.88);
+  --border: rgba(135, 162, 196, 0.22);
+  --border-strong: rgba(184, 211, 242, 0.32);
+  --text: #ecf4ff;
+  --muted: #90a4bf;
+  --accent: #8fd6ff;
+  --accent-strong: #54bfff;
+  --warning: #f1bb67;
+  --danger: #ff6d7b;
+  --success: #9bf6cf;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+  background:
+    linear-gradient(180deg, rgba(143, 214, 255, 0.08), transparent 24%),
+    linear-gradient(135deg, #03060b 0%, #07111d 55%, #02050a 100%);
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  color: var(--text);
+  background:
+    linear-gradient(rgba(143, 214, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(143, 214, 255, 0.05) 1px, transparent 1px),
+    radial-gradient(circle at top, rgba(84, 191, 255, 0.12), transparent 34%),
+    linear-gradient(180deg, #04070d 0%, #08101a 100%);
+  background-size: 48px 48px, 48px 48px, auto, auto;
+  font-family: var(--font-sans), sans-serif;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+::selection {
+  color: #02050a;
+  background: rgba(143, 214, 255, 0.92);
+}
+
+.panel {
+  border: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(17, 24, 38, 0.96), rgba(10, 16, 27, 0.96));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.03),
+    0 20px 60px rgba(0, 0, 0, 0.36);
+  backdrop-filter: blur(14px);
+}
+
+.panel-strong {
+  border-color: var(--border-strong);
+}
+
+.mono {
+  font-family: var(--font-mono), monospace;
+}
+
+.signal-grid {
+  background-image:
+    linear-gradient(rgba(143, 214, 255, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(143, 214, 255, 0.06) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
