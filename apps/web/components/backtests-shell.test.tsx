@@ -44,6 +44,14 @@ function renderBacktestsShell() {
   );
 }
 
+function renderBacktestRunShell(runId: string) {
+  return render(
+    <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+      <BacktestRunShell runId={runId} />
+    </SWRConfig>
+  );
+}
+
 describe("BacktestsShell", () => {
   beforeEach(() => {
     mockedFetchJson.mockReset();
@@ -292,6 +300,60 @@ describe("BacktestsShell", () => {
     expect(await screen.findByText("Provide both start and end datetimes.")).toBeInTheDocument();
     expect(mockedStartBacktest).not.toHaveBeenCalled();
   });
+
+  it("renders console loading states while list endpoints are pending", async () => {
+    mockedFetchJson.mockImplementation(async (path: string) => {
+      if (path === "/backtests" || path === "/backtest-suites") {
+        return new Promise(() => {});
+      }
+      throw new Error(`unexpected path ${path}`);
+    });
+
+    renderBacktestsShell();
+
+    expect(await screen.findByText("Loading completed backtest suites.")).toBeInTheDocument();
+    expect(screen.getByText("Loading completed backtest runs.")).toBeInTheDocument();
+    expect(screen.getByText("Select a suite to rank strategy candidates.")).toBeInTheDocument();
+  });
+
+  it("renders console empty states when there are no suites or runs", async () => {
+    mockedFetchJson.mockImplementation(async (path: string) => {
+      if (path === "/backtests") {
+        return { items: [], count: 0, active_job: null };
+      }
+      if (path === "/backtest-suites") {
+        return { items: [], count: 0, active_job: null };
+      }
+      throw new Error(`unexpected path ${path}`);
+    });
+
+    renderBacktestsShell();
+
+    expect(await screen.findByText("No completed backtest suites yet.")).toBeInTheDocument();
+    expect(screen.getByText("Select a suite to rank strategy candidates.")).toBeInTheDocument();
+    expect(screen.getByText("No completed backtest runs yet.")).toBeInTheDocument();
+  });
+
+  it("renders control feedback when the launch request is rejected", async () => {
+    mockedFetchJson.mockImplementation(async (path: string) => {
+      if (path === "/backtests") {
+        return { items: [], count: 0, active_job: null };
+      }
+      if (path === "/backtest-suites") {
+        return { items: [], count: 0, active_job: null };
+      }
+      throw new Error(`unexpected path ${path}`);
+    });
+    mockedStartBacktest.mockRejectedValue(new ApiError("backtest job already running", 409));
+
+    renderBacktestsShell();
+
+    expect(await screen.findByText("Start a backtest suite")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Launch Backtest Suite" }));
+
+    await waitFor(() => expect(mockedStartBacktest).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("backtest job already running")).toBeInTheDocument();
+  });
 });
 
 describe("BacktestRunShell", () => {
@@ -409,11 +471,7 @@ describe("BacktestRunShell", () => {
       throw new Error(`unexpected path ${path}`);
     });
 
-    render(
-      <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
-        <BacktestRunShell runId="suite-run-1" />
-      </SWRConfig>
-    );
+    renderBacktestRunShell("suite-run-1");
 
     expect(await screen.findByText("Canonical backtest analysis")).toBeInTheDocument();
     expect(screen.getByText("Latest asset decision set")).toBeInTheDocument();
@@ -480,11 +538,7 @@ describe("BacktestRunShell", () => {
       throw new Error(`unexpected path ${path}`);
     });
 
-    render(
-      <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
-        <BacktestRunShell runId="suite-run-2" />
-      </SWRConfig>
-    );
+    renderBacktestRunShell("suite-run-2");
 
     expect(await screen.findByText("Canonical backtest analysis")).toBeInTheDocument();
     expect(screen.getByText("Loading the latest asset decision set.")).toBeInTheDocument();
@@ -492,5 +546,168 @@ describe("BacktestRunShell", () => {
     expect(screen.getByText("Loading the backtest event stream.")).toBeInTheDocument();
     expect(screen.queryByText("This backtest run has no recorded fills yet.")).not.toBeInTheDocument();
     expect(screen.queryByText("No event stream is available for this backtest run.")).not.toBeInTheDocument();
+  });
+
+  it("renders the top-level loading state before the detail payload arrives", async () => {
+    mockedFetchJson.mockImplementation(async (path: string) => {
+      if (path === "/backtests/suite-run-loading") {
+        return new Promise(() => {});
+      }
+      throw new Error(`unexpected path ${path}`);
+    });
+
+    renderBacktestRunShell("suite-run-loading");
+
+    expect(await screen.findByText("Loading backtest artifacts")).toBeInTheDocument();
+    expect(screen.getByText("Polling the local backtest API for detail, events, fills, and positions.")).toBeInTheDocument();
+  });
+
+  it("renders the detail error state when the API request fails", async () => {
+    mockedFetchJson.mockRejectedValue(new ApiError("backtest detail unavailable", 500));
+
+    renderBacktestRunShell("suite-run-error");
+
+    expect(await screen.findByText("Unable to load backtest artifacts")).toBeInTheDocument();
+    expect(screen.getByText("backtest detail unavailable")).toBeInTheDocument();
+  });
+
+  it("renders the detail error state when a secondary artifact request fails", async () => {
+    mockedFetchJson.mockImplementation(async (path: string) => {
+      if (path === "/backtests/suite-run-partial-error") {
+        return {
+          run_id: "suite-run-partial-error",
+          manifest: {
+            run_id: "suite-run-partial-error",
+            suite_id: "suite-err",
+            dataset_id: "dataset-err",
+            strategy_id: "momentum",
+          },
+          state: {
+            cycle_id: "cycle-3",
+            portfolio: {
+              equity_usdc: 10010,
+              gross_notional_usdc: 1000,
+              realized_pnl_usdc: 5,
+              unrealized_pnl_usdc: 5,
+            },
+          },
+          analysis: {
+            run_id: "suite-run-partial-error",
+            mode: "backtest",
+            product_id: "MULTI_ASSET",
+            strategy_id: "momentum",
+            started_at: "2026-03-22T04:10:00Z",
+            ended_at: "2026-03-22T04:15:00Z",
+            cycle_count: 5,
+            starting_equity_usdc: 10000,
+            ending_equity_usdc: 10010,
+            realized_pnl_usdc: 5,
+            unrealized_pnl_usdc: 5,
+            total_pnl_usdc: 10,
+            total_return_pct: 0.001,
+            max_drawdown_usdc: 4,
+            max_drawdown_pct: 0.0004,
+            turnover_usdc: 500,
+            fill_count: 1,
+            trade_count: 1,
+            avg_abs_exposure_pct: 0.05,
+            max_abs_exposure_pct: 0.08,
+            decision_counts: { filled: 1 },
+            equity_series: [{ label: "c1", value: 10000 }, { label: "c5", value: 10010 }],
+            drawdown_series: [{ label: "c1", value: 0 }, { label: "c5", value: 4 }],
+            exposure_series: [{ label: "c1", value: 0 }, { label: "c5", value: 0.05 }],
+          },
+        };
+      }
+      if (path === "/backtests/suite-run-partial-error/events?limit=20") {
+        throw new ApiError("event stream unavailable", 500);
+      }
+      if (
+        path === "/backtests/suite-run-partial-error/fills?limit=20" ||
+        path === "/backtests/suite-run-partial-error/positions?limit=20"
+      ) {
+        return {
+          run_id: "suite-run-partial-error",
+          count: 0,
+          items: [],
+        };
+      }
+      throw new Error(`unexpected path ${path}`);
+    });
+
+    renderBacktestRunShell("suite-run-partial-error");
+
+    expect(await screen.findByText("Unable to load backtest artifacts")).toBeInTheDocument();
+    expect(screen.getByText("event stream unavailable")).toBeInTheDocument();
+  });
+
+  it("renders detail empty states when artifact lists are empty", async () => {
+    mockedFetchJson.mockImplementation(async (path: string) => {
+      if (path === "/backtests/suite-run-empty") {
+        return {
+          run_id: "suite-run-empty",
+          manifest: {
+            run_id: "suite-run-empty",
+            suite_id: "suite-empty",
+            dataset_id: "dataset-empty",
+            strategy_id: "mean_reversion",
+          },
+          state: {
+            cycle_id: "cycle-1",
+            portfolio: {
+              equity_usdc: 10000,
+              gross_notional_usdc: 0,
+              realized_pnl_usdc: 0,
+              unrealized_pnl_usdc: 0,
+            },
+          },
+          analysis: {
+            run_id: "suite-run-empty",
+            mode: "backtest",
+            product_id: "MULTI_ASSET",
+            strategy_id: "mean_reversion",
+            started_at: "2026-03-22T04:00:00Z",
+            ended_at: "2026-03-22T04:01:00Z",
+            cycle_count: 1,
+            starting_equity_usdc: 10000,
+            ending_equity_usdc: 10000,
+            realized_pnl_usdc: 0,
+            unrealized_pnl_usdc: 0,
+            total_pnl_usdc: 0,
+            total_return_pct: 0,
+            max_drawdown_usdc: 0,
+            max_drawdown_pct: 0,
+            turnover_usdc: 0,
+            fill_count: 0,
+            trade_count: 0,
+            avg_abs_exposure_pct: 0,
+            max_abs_exposure_pct: 0,
+            decision_counts: {},
+            equity_series: [],
+            drawdown_series: [],
+            exposure_series: [],
+          },
+        };
+      }
+      if (
+        path === "/backtests/suite-run-empty/events?limit=20" ||
+        path === "/backtests/suite-run-empty/fills?limit=20" ||
+        path === "/backtests/suite-run-empty/positions?limit=20"
+      ) {
+        return {
+          run_id: "suite-run-empty",
+          count: 0,
+          items: [],
+        };
+      }
+      throw new Error(`unexpected path ${path}`);
+    });
+
+    renderBacktestRunShell("suite-run-empty");
+
+    expect(await screen.findByText("No per-asset position snapshot was written for this backtest run.")).toBeInTheDocument();
+    expect(screen.getByText("No asset-level decision payload was found in the latest event.")).toBeInTheDocument();
+    expect(screen.getByText("This backtest run has no recorded fills yet.")).toBeInTheDocument();
+    expect(screen.getByText("No event stream is available for this backtest run.")).toBeInTheDocument();
   });
 });
