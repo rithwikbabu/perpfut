@@ -372,11 +372,14 @@ def _load_or_build_alignment_windows(
 ) -> tuple[tuple[datetime, ...], ...]:
     cache_path = _alignment_cache_path(dataset, lookback_candles=lookback_candles)
     if cache_path is not None and cache_path.exists():
-        payload = json.loads(cache_path.read_text(encoding="utf-8"))
-        return tuple(
-            tuple(datetime.fromisoformat(item) for item in window)
-            for window in payload.get("windows", [])
-        )
+        try:
+            payload = json.loads(cache_path.read_text(encoding="utf-8"))
+            return tuple(
+                tuple(datetime.fromisoformat(item) for item in window)
+                for window in payload.get("windows", [])
+            )
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            cache_path.unlink(missing_ok=True)
 
     common_timestamps: set[datetime] | None = None
     for indexes in timestamp_indexes.values():
@@ -424,7 +427,14 @@ def _load_or_build_alignment_windows(
 def _alignment_cache_path(dataset: HistoricalDataset, *, lookback_candles: int) -> Path | None:
     if dataset.dataset_dir is None:
         return None
-    return dataset.dataset_dir / CACHE_DIRNAME / f"aligned_windows_lookback_{lookback_candles}.json"
+    products_hash = hashlib.sha256(
+        json.dumps(sorted(dataset.products), separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:12]
+    return (
+        dataset.dataset_dir
+        / CACHE_DIRNAME
+        / f"aligned_windows_lookback_{lookback_candles}_{products_hash}.json"
+    )
 
 
 def list_dataset_summaries(base_runs_dir: Path, *, limit: int = 10) -> list[HistoricalDatasetSummary]:

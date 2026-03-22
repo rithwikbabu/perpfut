@@ -300,7 +300,7 @@ def test_synthesize_aligned_snapshots_reuses_cached_alignment_windows(tmp_path) 
     )
 
     first_frames = synthesize_aligned_snapshots(dataset, lookback_candles=3)
-    cache_path = dataset.dataset_dir / ".cache" / "aligned_windows_lookback_3.json"
+    cache_path = next((dataset.dataset_dir / ".cache").glob("aligned_windows_lookback_3_*.json"))
     assert cache_path.exists()
     cached_payload = json.loads(cache_path.read_text(encoding="utf-8"))
     cached_payload["windows"] = cached_payload["windows"][:1]
@@ -310,3 +310,69 @@ def test_synthesize_aligned_snapshots_reuses_cached_alignment_windows(tmp_path) 
 
     assert len(first_frames) > 0
     assert len(second_frames) == 1
+
+
+def test_synthesize_aligned_snapshots_uses_subset_specific_cache_keys(tmp_path) -> None:
+    anchor = datetime(2026, 3, 20, 0, 0, tzinfo=timezone.utc)
+    client = FakeHistoricalClient(
+        {
+            "BTC-PERP-INTX": _build_candles(anchor=anchor, count=6, base_price=100.0),
+            "ETH-PERP-INTX": _build_candles(anchor=anchor, count=6, base_price=200.0),
+            "SOL-PERP-INTX": _build_candles(anchor=anchor, count=6, missing_indexes={2}, base_price=50.0),
+        }
+    )
+    builder = HistoricalDatasetBuilder(client=client, base_runs_dir=tmp_path)
+    dataset = builder.build_dataset(
+        products=["BTC-PERP-INTX", "ETH-PERP-INTX", "SOL-PERP-INTX"],
+        start=anchor,
+        end=anchor + timedelta(minutes=6),
+    )
+
+    full_frames = synthesize_aligned_snapshots(dataset, lookback_candles=3)
+    subset_dataset = builder.load_dataset(dataset.dataset_id)
+    subset_dataset = type(subset_dataset)(
+        dataset_id=subset_dataset.dataset_id,
+        created_at=subset_dataset.created_at,
+        products=("BTC-PERP-INTX", "ETH-PERP-INTX"),
+        start=subset_dataset.start,
+        end=subset_dataset.end,
+        granularity=subset_dataset.granularity,
+        candles_by_product={
+            "BTC-PERP-INTX": subset_dataset.candles_by_product["BTC-PERP-INTX"],
+            "ETH-PERP-INTX": subset_dataset.candles_by_product["ETH-PERP-INTX"],
+        },
+        fingerprint=subset_dataset.fingerprint,
+        source=subset_dataset.source,
+        version=subset_dataset.version,
+        dataset_dir=subset_dataset.dataset_dir,
+    )
+    subset_frames = synthesize_aligned_snapshots(subset_dataset, lookback_candles=3)
+
+    cache_files = sorted((dataset.dataset_dir / ".cache").glob("aligned_windows_lookback_3_*.json"))
+    assert len(cache_files) == 2
+    assert len(subset_frames) > len(full_frames)
+
+
+def test_synthesize_aligned_snapshots_recovers_from_malformed_cache(tmp_path) -> None:
+    anchor = datetime(2026, 3, 20, 0, 0, tzinfo=timezone.utc)
+    client = FakeHistoricalClient(
+        {
+            "BTC-PERP-INTX": _build_candles(anchor=anchor, count=6, base_price=100.0),
+            "ETH-PERP-INTX": _build_candles(anchor=anchor, count=6, base_price=200.0),
+        }
+    )
+    builder = HistoricalDatasetBuilder(client=client, base_runs_dir=tmp_path)
+    dataset = builder.build_dataset(
+        products=["BTC-PERP-INTX", "ETH-PERP-INTX"],
+        start=anchor,
+        end=anchor + timedelta(minutes=6),
+    )
+
+    frames = synthesize_aligned_snapshots(dataset, lookback_candles=3)
+    cache_path = next((dataset.dataset_dir / ".cache").glob("aligned_windows_lookback_3_*.json"))
+    cache_path.write_text("{not-json\n", encoding="utf-8")
+
+    rebuilt_frames = synthesize_aligned_snapshots(dataset, lookback_candles=3)
+
+    assert rebuilt_frames == frames
+    assert json.loads(cache_path.read_text(encoding="utf-8"))["lookback_candles"] == 3
