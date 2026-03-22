@@ -5,11 +5,15 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from dataclasses import asdict
+from dataclasses import asdict, replace
+from datetime import datetime
 from pathlib import Path
 
 from .analysis import analyze_run
 from .api.server import run_api_server
+from .backtest_data import HistoricalDatasetBuilder
+from .backtest_history import compare_backtest_suite, list_backtest_suites, load_backtest_run
+from .backtest_suite import BacktestSuiteRunner
 from .config import AppConfig
 from .domain import Mode
 from .engine import PaperEngine
@@ -95,6 +99,39 @@ def build_parser() -> argparse.ArgumentParser:
     api_parser.add_argument("--host", default="127.0.0.1")
     api_parser.add_argument("--port", type=int, default=8000)
 
+    backtest_parser = subparsers.add_parser("backtest", help="run and inspect historical backtests")
+    backtest_subparsers = backtest_parser.add_subparsers(dest="backtest_command")
+
+    backtest_run_parser = backtest_subparsers.add_parser("run", help="launch a historical backtest suite")
+    backtest_run_parser.add_argument("--product-id", action="append", dest="product_ids", required=True)
+    backtest_run_parser.add_argument("--strategy-id", action="append", dest="strategy_ids", required=True)
+    backtest_run_parser.add_argument("--start", required=True)
+    backtest_run_parser.add_argument("--end", required=True)
+    backtest_run_parser.add_argument("--granularity", default="ONE_MINUTE", choices=["ONE_MINUTE"])
+    backtest_run_parser.add_argument("--runs-dir", type=Path, default=None)
+    backtest_run_parser.add_argument("--lookback-candles", type=int, default=None)
+    backtest_run_parser.add_argument("--signal-scale", type=float, default=None)
+    backtest_run_parser.add_argument("--starting-collateral-usdc", type=float, default=None)
+    backtest_run_parser.add_argument("--max-abs-position", type=float, default=None)
+    backtest_run_parser.add_argument("--max-gross-position", type=float, default=None)
+    backtest_run_parser.add_argument("--max-leverage", type=float, default=None)
+    backtest_run_parser.add_argument("--slippage-bps", type=float, default=None)
+
+    backtest_list_parser = backtest_subparsers.add_parser("list", help="list recent backtest suites")
+    backtest_list_parser.add_argument("--limit", type=int, default=10)
+    backtest_list_parser.add_argument("--runs-dir", type=Path, default=None)
+
+    backtest_show_parser = backtest_subparsers.add_parser("show", help="show a backtest run")
+    backtest_show_parser.add_argument("--run-id", required=True)
+    backtest_show_parser.add_argument("--runs-dir", type=Path, default=None)
+
+    backtest_compare_parser = backtest_subparsers.add_parser(
+        "compare",
+        help="compare the ranked runs inside a backtest suite",
+    )
+    backtest_compare_parser.add_argument("--suite-id", required=True)
+    backtest_compare_parser.add_argument("--runs-dir", type=Path, default=None)
+
     return parser
 
 
@@ -123,6 +160,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_preflight(args)
     if args.command == "api":
         return _run_api(args)
+    if args.command == "backtest":
+        return _run_backtest(args)
     if args.command == "live":
         return _run_live(args)
 
@@ -364,6 +403,134 @@ def _run_live(args: argparse.Namespace) -> int:
 def _run_api(args: argparse.Namespace) -> int:
     run_api_server(host=args.host, port=args.port)
     return 0
+
+
+def _run_backtest(args: argparse.Namespace) -> int:
+    if args.backtest_command == "run":
+        return _run_backtest_suite(args)
+    if args.backtest_command == "list":
+        return _list_backtest_suites(args)
+    if args.backtest_command == "show":
+        return _show_backtest_run(args)
+    if args.backtest_command == "compare":
+        return _compare_backtest_suite(args)
+    raise SystemExit("choose one of: run, list, show, compare")
+
+
+def _run_backtest_suite(args: argparse.Namespace) -> int:
+    config = _build_backtest_config(args)
+    start = _parse_iso8601(args.start, field_name="start")
+    end = _parse_iso8601(args.end, field_name="end")
+    with CoinbasePublicClient() as client:
+        builder = HistoricalDatasetBuilder(
+            client=client,
+            base_runs_dir=config.runtime.runs_dir,
+        )
+        dataset = builder.build_dataset(
+            products=args.product_ids,
+            start=start,
+            end=end,
+            granularity=args.granularity,
+        )
+    suite = BacktestSuiteRunner(
+        base_runs_dir=config.runtime.runs_dir,
+        dataset=dataset,
+        config=config,
+        products=args.product_ids,
+    ).run_suite(strategy_ids=args.strategy_ids)
+    print(
+        json.dumps(
+            {
+                "suite_id": suite.suite_id,
+                "dataset_id": suite.dataset_id,
+                "run_ids": list(suite.run_ids),
+                "items": [
+                    {
+                        "run_id": item.run_id,
+                        "strategy_id": item.strategy_id,
+                        "analysis": asdict(item.analysis),
+                    }
+                    for item in suite.items
+                ],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+def _list_backtest_suites(args: argparse.Namespace) -> int:
+    runs_dir = args.runs_dir or AppConfig.from_env().runtime.runs_dir
+    suites = list_backtest_suites(runs_dir, limit=args.limit)
+    print(json.dumps([asdict(item) for item in suites], indent=2, sort_keys=True))
+    return 0
+
+
+def _show_backtest_run(args: argparse.Namespace) -> int:
+    runs_dir = args.runs_dir or AppConfig.from_env().runtime.runs_dir
+    payload = load_backtest_run(runs_dir, run_id=args.run_id)
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0
+
+
+def _compare_backtest_suite(args: argparse.Namespace) -> int:
+    runs_dir = args.runs_dir or AppConfig.from_env().runtime.runs_dir
+    payload = compare_backtest_suite(runs_dir, suite_id=args.suite_id)
+    print(json.dumps(asdict(payload), indent=2, sort_keys=True))
+    return 0
+
+
+def _build_backtest_config(args: argparse.Namespace) -> AppConfig:
+    config = AppConfig.from_env().with_overrides(runs_dir=args.runs_dir)
+    if args.lookback_candles is not None:
+        config = replace(config, strategy=replace(config.strategy, lookback_candles=args.lookback_candles))
+    if args.signal_scale is not None:
+        config = replace(config, strategy=replace(config.strategy, signal_scale=args.signal_scale))
+    if args.starting_collateral_usdc is not None:
+        config = replace(
+            config,
+            simulation=replace(
+                config.simulation,
+                starting_collateral_usdc=args.starting_collateral_usdc,
+            ),
+        )
+    if args.max_abs_position is not None or args.max_gross_position is not None:
+        config = replace(
+            config,
+            risk=replace(
+                config.risk,
+                max_abs_position=(
+                    args.max_abs_position if args.max_abs_position is not None else config.risk.max_abs_position
+                ),
+                max_gross_position=(
+                    args.max_gross_position
+                    if args.max_gross_position is not None
+                    else config.risk.max_gross_position
+                ),
+            ),
+        )
+    if args.max_leverage is not None or args.slippage_bps is not None:
+        config = replace(
+            config,
+            simulation=replace(
+                config.simulation,
+                max_leverage=args.max_leverage if args.max_leverage is not None else config.simulation.max_leverage,
+                slippage_bps=args.slippage_bps if args.slippage_bps is not None else config.simulation.slippage_bps,
+            ),
+        )
+    return config
+
+
+def _parse_iso8601(value: str, *, field_name: str) -> datetime:
+    normalized = value.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError as exc:
+        raise SystemExit(f"invalid {field_name} datetime: {value}") from exc
+    if parsed.tzinfo is None:
+        raise SystemExit(f"{field_name} datetime must include a timezone: {value}")
+    return parsed
 
 
 def _validate_strategy_config(config: AppConfig) -> None:
