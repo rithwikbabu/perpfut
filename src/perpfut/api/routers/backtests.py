@@ -55,8 +55,8 @@ def read_datasets(limit: int = Query(default=10, ge=1, le=200)) -> DatasetsListR
 @router.post("/datasets", response_model=DatasetSummaryResponse, status_code=status.HTTP_201_CREATED)
 def build_dataset(request: DatasetBuildRequest) -> DatasetSummaryResponse:
     config = AppConfig.from_env()
-    start = datetime.fromisoformat(request.start)
-    end = datetime.fromisoformat(request.end)
+    start = _parse_dataset_datetime(request.start, field_name="start")
+    end = _parse_dataset_datetime(request.end, field_name="end")
     with CoinbasePublicClient() as client:
         builder = HistoricalDatasetBuilder(client=client, base_runs_dir=config.runtime.runs_dir)
         dataset = builder.build_dataset(
@@ -207,3 +207,14 @@ def _parse_timestamp(value: str | None) -> datetime | None:
         return datetime.fromisoformat(value)
     except ValueError:
         return None
+
+
+def _parse_dataset_datetime(value: str, *, field_name: str) -> datetime:
+    normalized = value.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"invalid {field_name} datetime: {value}") from exc
+    if parsed.tzinfo is None:
+        raise HTTPException(status_code=422, detail=f"{field_name} datetime must include a timezone: {value}")
+    return parsed

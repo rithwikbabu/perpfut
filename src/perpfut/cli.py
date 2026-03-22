@@ -556,7 +556,12 @@ def _list_datasets_command(args: argparse.Namespace) -> int:
 
 def _show_dataset_command(args: argparse.Namespace) -> int:
     runs_dir = args.runs_dir or AppConfig.from_env().runtime.runs_dir
-    payload = load_dataset_summary(runs_dir, dataset_id=args.dataset_id)
+    try:
+        payload = load_dataset_summary(runs_dir, dataset_id=args.dataset_id)
+    except FileNotFoundError as exc:
+        raise SystemExit(str(exc)) from exc
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise SystemExit(f"invalid dataset artifacts for: {args.dataset_id}") from exc
     print(json.dumps(asdict(payload), indent=2, sort_keys=True))
     return 0
 

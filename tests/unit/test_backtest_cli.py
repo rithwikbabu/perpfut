@@ -395,6 +395,11 @@ def test_backtest_show_missing_run_raises_system_exit(tmp_path) -> None:
         main(["backtest", "show", "--runs-dir", str(tmp_path), "--run-id", "missing"])
 
 
+def test_dataset_show_missing_dataset_raises_system_exit(tmp_path) -> None:
+    with pytest.raises(SystemExit, match="backtest dataset not found: missing"):
+        main(["dataset", "show", "--runs-dir", str(tmp_path), "--dataset-id", "missing"])
+
+
 def test_backtest_compare_missing_suite_raises_system_exit(tmp_path) -> None:
     with pytest.raises(SystemExit, match="backtest suite not found: missing"):
         main(["backtest", "compare", "--runs-dir", str(tmp_path), "--suite-id", "missing"])
