@@ -275,6 +275,74 @@ def test_backtests_list_surfaces_latest_terminal_job(monkeypatch, tmp_path) -> N
     assert response.json()["latest_job"]["error"] == "backtest run failed: boom"
 
 
+def test_backtests_list_reconciles_split_job_metadata(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("RUNS_DIR", str(tmp_path))
+    manager = StubBacktestManager()
+    manager.active = BacktestJobStatusResponse(
+        job_id="job-3",
+        status="running",
+        phase="queued",
+        phase_message="Waiting for backtest worker heartbeat.",
+        pid=123,
+        created_at="2026-03-22T00:00:00+00:00",
+        started_at="2026-03-22T00:00:00+00:00",
+        finished_at=None,
+        total_runs=2,
+        completed_runs=0,
+        progress_pct=0.0,
+        elapsed_seconds=30.0,
+        eta_seconds=None,
+        last_heartbeat_at="2026-03-22T00:00:05+00:00",
+        suite_id=None,
+        dataset_id=None,
+        run_ids=[],
+        error=None,
+        log_path="runs/backtests/control/job-3.log",
+        request=BacktestRunRequest.model_validate(
+            {
+                "productIds": ["BTC-PERP-INTX"],
+                "strategyIds": ["momentum", "mean_reversion"],
+                "start": "2026-03-20T00:00:00+00:00",
+                "end": "2026-03-21T00:00:00+00:00",
+                "granularity": "ONE_MINUTE",
+            }
+        ),
+    )
+    manager.jobs = [
+        BacktestJobStatusResponse(
+            job_id="job-3",
+            status="running",
+            phase="running_suite",
+            phase_message="Completed strategy 1 of 2: momentum",
+            pid=123,
+            created_at="2026-03-22T00:00:00+00:00",
+            started_at="2026-03-22T00:00:00+00:00",
+            finished_at=None,
+            total_runs=2,
+            completed_runs=1,
+            progress_pct=0.5,
+            elapsed_seconds=60.0,
+            eta_seconds=60.0,
+            last_heartbeat_at="2026-03-22T00:01:00+00:00",
+            suite_id=None,
+            dataset_id=None,
+            run_ids=[],
+            error=None,
+            log_path="runs/backtests/control/job-3.log",
+            request=manager.active.request,
+        )
+    ]
+    monkeypatch.setattr("perpfut.api.routers.backtests.get_backtest_job_manager", lambda: manager)
+    client = TestClient(create_app())
+
+    response = client.get("/api/backtests")
+
+    assert response.status_code == 200
+    assert response.json()["active_job"]["phase"] == "running_suite"
+    assert response.json()["active_job"]["progress_pct"] == 0.5
+    assert response.json()["latest_job"]["phase"] == "running_suite"
+
+
 def test_backtest_routes_map_manager_failures(monkeypatch) -> None:
     class ConflictManager(StubBacktestManager):
         def start(self, request: BacktestRunRequest) -> BacktestJobStatusResponse:

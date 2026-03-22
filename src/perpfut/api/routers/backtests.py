@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from fastapi import APIRouter, HTTPException, Query, status
 
 from ..backtest_manager import (
@@ -38,8 +40,7 @@ router = APIRouter(tags=["backtests"])
 def read_backtests(limit: int = Query(default=10, ge=1, le=200)) -> BacktestsListResponse:
     manager = get_backtest_job_manager()
     try:
-        active_job = manager.status()
-        latest_job = next(iter(manager.list_jobs(limit=1)), None)
+        active_job, latest_job = _load_job_statuses(manager)
     except BacktestJobStateError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     try:
@@ -101,8 +102,7 @@ def read_backtest_fills(run_id: str, limit: int = Query(default=50, ge=1, le=500
 def read_backtest_suites(limit: int = Query(default=10, ge=1, le=200)) -> BacktestSuitesListResponse:
     manager = get_backtest_job_manager()
     try:
-        active_job = manager.status()
-        latest_job = next(iter(manager.list_jobs(limit=1)), None)
+        active_job, latest_job = _load_job_statuses(manager)
     except BacktestJobStateError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     try:
@@ -130,3 +130,38 @@ def _build_backtest_list_response(run_id: str, filename: str, *, limit: int) -> 
     except ArtifactError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return ArtifactListResponse(run_id=run_id, items=items, count=len(items))
+
+
+def _load_job_statuses(manager) -> tuple[BacktestJobStatusResponse | None, BacktestJobStatusResponse | None]:
+    active_job = manager.status()
+    latest_job = next(iter(manager.list_jobs(limit=1)), None)
+    if active_job is None or latest_job is None or active_job.job_id != latest_job.job_id:
+        return active_job, latest_job
+    canonical_job = _prefer_fresher_job_status(active_job, latest_job)
+    if canonical_job.status == "running":
+        return canonical_job, canonical_job
+    return None, canonical_job
+
+
+def _prefer_fresher_job_status(
+    left: BacktestJobStatusResponse,
+    right: BacktestJobStatusResponse,
+) -> BacktestJobStatusResponse:
+    return left if _job_status_sort_key(left) >= _job_status_sort_key(right) else right
+
+
+def _job_status_sort_key(job: BacktestJobStatusResponse) -> tuple[int, datetime, int, float]:
+    status_priority = {"running": 1, "succeeded": 2, "failed": 2}.get(job.status, 0)
+    heartbeat = _parse_timestamp(job.last_heartbeat_at) or _parse_timestamp(job.started_at) or datetime.min
+    completed_runs = job.completed_runs or 0
+    progress_pct = job.progress_pct or 0.0
+    return status_priority, heartbeat, completed_runs, progress_pct
+
+
+def _parse_timestamp(value: str | None) -> datetime | None:
+    if value is None:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
