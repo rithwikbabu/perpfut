@@ -46,6 +46,34 @@ class SignalDecision:
 
 
 @dataclass(frozen=True, slots=True)
+class NoTradeReason:
+    code: str
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class RiskDecision:
+    target_before_risk: float
+    target_after_risk: float
+    current_position: float
+    target_notional_usdc: float
+    current_notional_usdc: float
+    delta_notional_usdc: float
+    rebalance_threshold: float
+    min_trade_notional_usdc: float
+    halted: bool
+    rebalance_eligible: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionSummary:
+    action: str
+    reason_code: str
+    reason_message: str
+    summary: str
+
+
+@dataclass(frozen=True, slots=True)
 class PositionState:
     quantity: float = 0.0
     entry_price: float | None = None
@@ -84,6 +112,12 @@ class OrderIntent:
 
 
 @dataclass(frozen=True, slots=True)
+class OrderPlan:
+    order_intent: OrderIntent | None
+    no_trade_reason: NoTradeReason | None
+
+
+@dataclass(frozen=True, slots=True)
 class SimulatedFill:
     product_id: str
     side: str
@@ -104,6 +138,9 @@ class CycleResult:
     mode: Mode
     market: MarketSnapshot
     signal: SignalDecision
+    risk_decision: RiskDecision
+    execution_summary: ExecutionSummary
+    no_trade_reason: NoTradeReason | None
     state: PositionState
     order_intent: OrderIntent | None
     fill: SimulatedFill | None

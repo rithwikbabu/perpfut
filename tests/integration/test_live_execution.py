@@ -48,10 +48,12 @@ class FakeTradingClient:
         preview_errs: tuple[str, ...] = (),
         total_balance: float = 10000.0,
         open_orders: list[OrderStatusSnapshot] | None = None,
+        submitted_order_status: str = "FILLED",
     ):
         self.preview_errs = preview_errs
         self.total_balance = total_balance
         self.open_orders = open_orders or []
+        self.submitted_order_status = submitted_order_status
         self.submitted = False
         self.cancelled = False
 
@@ -124,9 +126,9 @@ class FakeTradingClient:
             client_order_id="client-1",
             product_id="BTC-PERP-INTX",
             side="BUY",
-            status="FILLED",
-            filled_size=0.1,
-            average_filled_price=110.5,
+            status=self.submitted_order_status,
+            filled_size=0.1 if self.submitted_order_status == "FILLED" else 0.0,
+            average_filled_price=110.5 if self.submitted_order_status == "FILLED" else None,
             total_fees=1.0,
         )
 
@@ -182,6 +184,8 @@ def test_live_executor_previews_submits_and_logs_fill(tmp_path) -> None:
     assert "order_preview" in events
     assert "order_submit" in events
     assert "order_fill" in events
+    assert "execution_summary" in events
+    assert "risk_decision" in events
 
 
 def test_live_executor_halts_on_preview_error_without_submit(tmp_path) -> None:
@@ -208,6 +212,7 @@ def test_live_executor_halts_on_preview_error_without_submit(tmp_path) -> None:
     events = store.events_path.read_text(encoding="utf-8")
     assert "halt" in events
     assert "preview_rejected" in events
+    assert "execution_summary" in events
 
 
 def test_live_executor_cancels_existing_open_and_pending_orders_on_drawdown_halt(tmp_path) -> None:
@@ -257,6 +262,60 @@ def test_live_executor_cancels_existing_open_and_pending_orders_on_drawdown_halt
     assert trading_client.cancelled is True
     events = store.events_path.read_text(encoding="utf-8")
     assert "max_daily_drawdown" in events
+    assert "drawdown_halt" in events
+
+
+def test_live_executor_records_skip_reason_for_noop_cycle(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("REBALANCE_THRESHOLD", "0.6")
+    config = AppConfig.from_env().with_overrides(
+        iterations=1,
+        interval_seconds=0,
+        runs_dir=tmp_path,
+    )
+    store = ArtifactStore.create(config.runtime.runs_dir)
+    store.write_metadata(config)
+    trading_client = FakeTradingClient()
+
+    executor = LiveExecutor(
+        config=config,
+        market_data=FakeMarketData(),
+        trading_client=trading_client,
+        artifact_store=store,
+        portfolio_uuid="portfolio-123",
+    )
+
+    executor.run_cycle(1)
+
+    events = store.events_path.read_text(encoding="utf-8")
+    assert "live_noop" in events
+    assert "below_rebalance_threshold" in events
+    state = store.state_path.read_text(encoding="utf-8")
+    assert "no_trade_reason" in state
+
+
+def test_live_executor_does_not_mark_open_order_as_filled(tmp_path) -> None:
+    config = AppConfig.from_env().with_overrides(
+        iterations=1,
+        interval_seconds=0,
+        runs_dir=tmp_path,
+    )
+    store = ArtifactStore.create(config.runtime.runs_dir)
+    store.write_metadata(config)
+    trading_client = FakeTradingClient(submitted_order_status="OPEN")
+
+    executor = LiveExecutor(
+        config=config,
+        market_data=FakeMarketData(),
+        trading_client=trading_client,
+        artifact_store=store,
+        portfolio_uuid="portfolio-123",
+    )
+
+    executor.run_cycle(1)
+
+    events = store.events_path.read_text(encoding="utf-8")
+    assert "open_order_after_submit" in events
+    assert '"action": "filled"' not in events
 
 
 def test_live_executor_logs_resume_mismatch_and_persists_exchange_truth(tmp_path) -> None:

@@ -49,7 +49,40 @@ def test_paper_engine_runs_one_cycle_and_writes_artifacts(tmp_path) -> None:
 
     assert result.order_intent is not None
     assert result.fill is not None
+    assert result.execution_summary.action == "filled"
+    assert result.execution_summary.reason_code == "filled"
+    assert result.no_trade_reason is None
+    assert result.risk_decision.rebalance_eligible is True
     assert result.state.quantity > 0.0
     assert artifact_store.events_path.exists()
     assert artifact_store.positions_path.exists()
     assert artifact_store.state_path.exists()
+
+
+def test_paper_engine_records_skip_reason_when_delta_is_below_rebalance_threshold(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("REBALANCE_THRESHOLD", "0.6")
+    config = AppConfig.from_env().with_overrides(
+        product_id="BTC-PERP-INTX",
+        iterations=1,
+        interval_seconds=0,
+        runs_dir=tmp_path,
+    )
+    artifact_store = ArtifactStore.create(config.runtime.runs_dir)
+    artifact_store.write_metadata(config)
+    engine = PaperEngine(
+        config=config,
+        market_data=FakeMarketData(),
+        artifact_store=artifact_store,
+    )
+
+    result = engine.run_cycle(1)
+
+    assert result.order_intent is None
+    assert result.fill is None
+    assert result.no_trade_reason is not None
+    assert result.no_trade_reason.code == "below_rebalance_threshold"
+    assert result.execution_summary.action == "skipped"
+    assert result.risk_decision.rebalance_eligible is False
