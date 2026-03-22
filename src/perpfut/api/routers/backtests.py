@@ -37,7 +37,11 @@ from ..strategy_catalog import build_strategy_catalog
 from ...backtest_data import HistoricalDatasetBuilder
 from ...exchange_coinbase import CoinbasePublicClient
 from ...portfolio_optimizer import PortfolioOptimizationConfig
-from ...portfolio_runs import load_or_run_strategy_sleeve_research, run_portfolio_research
+from ...portfolio_runs import (
+    load_or_run_strategy_sleeve_research,
+    run_portfolio_research,
+    run_portfolio_research_from_sleeves,
+)
 from ...strategy_instances import parse_strategy_instance_specs
 from ..schemas import (
     ArtifactListResponse,
@@ -282,41 +286,53 @@ def read_portfolio_run_comparison(
 def start_portfolio_run(request: PortfolioRunRequest) -> PortfolioRunDetailResponse:
     config = AppConfig.from_env()
     try:
-        strategy_instances = parse_strategy_instance_specs(
-            [
-                {
-                    "strategy_instance_id": item.strategy_instance_id,
-                    "strategy_id": item.strategy_id,
-                    "universe": item.universe,
-                    "strategy_params": item.strategy_params,
-                    "risk_overrides": item.risk_overrides,
-                }
-                for item in request.strategy_instances
-            ],
-            source="api portfolio request",
-        )
         with CoinbasePublicClient() as client:
             dataset = HistoricalDatasetBuilder(client=client, base_runs_dir=config.runtime.runs_dir).load_dataset(
                 request.dataset_id
             )
-        result = run_portfolio_research(
-            base_runs_dir=config.runtime.runs_dir,
-            dataset=dataset,
-            config=config,
-            strategy_instances=strategy_instances,
-            optimizer_config=PortfolioOptimizationConfig(
-                lookback_days=request.lookback_days,
-                max_strategy_weight=request.max_strategy_weight,
-                covariance_shrinkage=request.covariance_shrinkage,
-                ridge_penalty=request.ridge_penalty,
-                turnover_cost_bps=request.turnover_cost_bps,
-            ),
-            starting_capital_usdc=(
-                request.starting_capital_usdc
-                if request.starting_capital_usdc is not None
-                else config.simulation.starting_collateral_usdc
-            ),
+        optimizer_config = PortfolioOptimizationConfig(
+            lookback_days=request.lookback_days,
+            max_strategy_weight=request.max_strategy_weight,
+            covariance_shrinkage=request.covariance_shrinkage,
+            ridge_penalty=request.ridge_penalty,
+            turnover_cost_bps=request.turnover_cost_bps,
         )
+        starting_capital_usdc = (
+            request.starting_capital_usdc
+            if request.starting_capital_usdc is not None
+            else config.simulation.starting_collateral_usdc
+        )
+        if request.strategy_instances is not None:
+            strategy_instances = parse_strategy_instance_specs(
+                [
+                    {
+                        "strategy_instance_id": item.strategy_instance_id,
+                        "strategy_id": item.strategy_id,
+                        "universe": item.universe,
+                        "strategy_params": item.strategy_params,
+                        "risk_overrides": item.risk_overrides,
+                    }
+                    for item in request.strategy_instances
+                ],
+                source="api portfolio request",
+            )
+            result = run_portfolio_research(
+                base_runs_dir=config.runtime.runs_dir,
+                dataset=dataset,
+                config=config,
+                strategy_instances=strategy_instances,
+                optimizer_config=optimizer_config,
+                starting_capital_usdc=starting_capital_usdc,
+            )
+        else:
+            assert request.sleeve_run_ids is not None
+            result = run_portfolio_research_from_sleeves(
+                base_runs_dir=config.runtime.runs_dir,
+                dataset=dataset,
+                optimizer_config=optimizer_config,
+                starting_capital_usdc=starting_capital_usdc,
+                sleeve_run_ids=tuple(request.sleeve_run_ids),
+            )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:

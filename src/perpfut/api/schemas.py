@@ -379,7 +379,16 @@ class SleeveLaunchRequest(BaseModel):
 
 class PortfolioRunRequest(BaseModel):
     dataset_id: str = Field(alias="datasetId")
-    strategy_instances: list[StrategyInstanceRequest] = Field(alias="strategyInstances", min_length=1)
+    strategy_instances: list[StrategyInstanceRequest] | None = Field(
+        alias="strategyInstances",
+        default=None,
+        min_length=1,
+    )
+    sleeve_run_ids: list[str] | None = Field(
+        alias="sleeveRunIds",
+        default=None,
+        min_length=1,
+    )
     starting_capital_usdc: float | None = Field(alias="startingCapitalUsdc", default=None, gt=0)
     lookback_days: int = Field(alias="lookbackDays", default=60, ge=1)
     max_strategy_weight: float = Field(alias="maxStrategyWeight", default=0.40, gt=0)
@@ -390,6 +399,16 @@ class PortfolioRunRequest(BaseModel):
     model_config = {
         "populate_by_name": True,
     }
+
+    @model_validator(mode="after")
+    def _validate_launch_mode(self) -> "PortfolioRunRequest":
+        has_strategy_instances = self.strategy_instances is not None
+        has_sleeve_run_ids = self.sleeve_run_ids is not None
+        if has_strategy_instances == has_sleeve_run_ids:
+            raise ValueError(
+                "portfolio runs require exactly one of strategyInstances or sleeveRunIds"
+            )
+        return self
 
 
 class PortfolioRunSummaryResponse(BaseModel):

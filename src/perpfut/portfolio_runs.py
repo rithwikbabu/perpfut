@@ -88,6 +88,7 @@ class ResolvedStrategySleeve:
     run_id: str
     run_dir: Path
     analysis: StrategySleeveAnalysis
+    strategy_instance_payload: dict[str, object]
 
 
 def run_portfolio_research(
@@ -104,109 +105,61 @@ def run_portfolio_research(
     if starting_capital_usdc <= 0.0:
         raise ValueError("starting_capital_usdc must be positive")
 
-    sleeve_payloads: list[dict[str, object]] = []
-    sleeve_run_ids: list[str] = []
-    sleeve_analyses: list[StrategySleeveAnalysis] = []
-    for strategy_instance in strategy_instances:
-        sleeve = load_or_run_strategy_sleeve_research(
+    sleeves = [
+        load_or_run_strategy_sleeve_research(
             base_runs_dir=base_runs_dir,
             dataset=dataset,
             config=config,
             strategy_instance=strategy_instance,
         )
-        sleeve_run_ids.append(sleeve.run_id)
-        sleeve_analyses.append(sleeve.analysis)
-        sleeve_payloads.append(
-            {
-                "strategy_instance_id": sleeve.analysis.strategy_instance_id,
-                "strategy_id": sleeve.analysis.strategy_id,
-                "dataset_id": sleeve.analysis.dataset_id,
-                "config_fingerprint": sleeve.analysis.config_fingerprint,
-                "daily_returns": [
-                    {"label": point.label, "value": point.value}
-                    for point in sleeve.analysis.daily_returns
-                ],
-            }
-        )
-
-    optimization = optimize_strategy_portfolio(
-        [load_sleeve_return_stream(payload) for payload in sleeve_payloads],
-        config=optimizer_config,
-    )
-    created_at = datetime.now(timezone.utc)
-    run_id = created_at.strftime("%Y%m%dT%H%M%S%fZ")
-    run_dir = base_runs_dir / "backtests" / "portfolio-runs" / run_id
-    run_dir.mkdir(parents=True, exist_ok=False)
-
-    analysis, contributions, weight_rows, diagnostic_rows = build_portfolio_run_analysis(
-        run_id=run_id,
-        created_at=created_at,
+        for strategy_instance in strategy_instances
+    ]
+    return _run_portfolio_research_from_resolved_sleeves(
+        base_runs_dir=base_runs_dir,
         dataset=dataset,
-        optimization=optimization,
-        sleeves=sleeve_analyses,
-        sleeve_run_ids=tuple(sleeve_run_ids),
+        optimizer_config=optimizer_config,
         starting_capital_usdc=starting_capital_usdc,
-        turnover_cost_bps=optimizer_config.turnover_cost_bps,
+        sleeves=sleeves,
+        strategy_instances=[instance.to_payload() for instance in strategy_instances],
     )
 
-    manifest = {
-        "run_id": run_id,
-        "created_at": created_at.isoformat(),
-        "mode": "portfolio_research",
-        "dataset_id": dataset.dataset_id,
-        "dataset_fingerprint": dataset.fingerprint,
-        "dataset_source": dataset.source,
-        "dataset_version": dataset.version,
-        "date_range_start": dataset.start.isoformat(),
-        "date_range_end": dataset.end.isoformat(),
-        "analysis_path": "analysis.json",
-        "weights_path": "weights.ndjson",
-        "diagnostics_path": "diagnostics.ndjson",
-        "contributions_path": "contributions.json",
-        "strategy_instances": [instance.to_payload() for instance in strategy_instances],
-        "strategy_instance_ids": [instance.strategy_instance_id for instance in strategy_instances],
-        "sleeve_run_ids": list(sleeve_run_ids),
-    }
-    config_payload = {
-        "optimizer": asdict(optimizer_config),
-        "starting_capital_usdc": starting_capital_usdc,
-    }
-    state_payload = {
-        "run_id": run_id,
-        "dataset_id": dataset.dataset_id,
-        "latest_date": analysis.net_return_series[-1].label if analysis.net_return_series else None,
-        "ending_equity_usdc": analysis.ending_equity_usdc,
-        "total_pnl_usdc": analysis.total_pnl_usdc,
-        "total_return_pct": analysis.total_return_pct,
-        "sharpe_ratio": analysis.sharpe_ratio,
-        "max_drawdown_usdc": analysis.max_drawdown_usdc,
-        "total_turnover_usdc": analysis.total_turnover_usdc,
-        "latest_weights": weight_rows[-1]["weights"] if weight_rows else {},
-        "latest_cash_weight": weight_rows[-1]["cash_weight"] if weight_rows else 1.0,
-        "latest_gross_weight": weight_rows[-1]["gross_weight"] if weight_rows else 0.0,
-    }
-    contributions_payload = {
-        "items": [asdict(item) for item in contributions],
-        "transaction_cost_total_usdc": analysis.transaction_cost_total_usdc,
-        "transaction_cost_series_usdc": [asdict(point) for point in analysis.transaction_cost_series_usdc],
-    }
 
-    _write_json(run_dir / "manifest.json", manifest)
-    _write_json(run_dir / "config.json", config_payload)
-    _write_json(run_dir / "state.json", state_payload)
-    _write_json(run_dir / "analysis.json", asdict(analysis))
-    _write_json(run_dir / "contributions.json", contributions_payload)
-    _write_ndjson(run_dir / "weights.ndjson", weight_rows)
-    _write_ndjson(run_dir / "diagnostics.ndjson", diagnostic_rows)
+def run_portfolio_research_from_sleeves(
+    *,
+    base_runs_dir: Path,
+    dataset: HistoricalDataset,
+    optimizer_config: PortfolioOptimizationConfig,
+    starting_capital_usdc: float,
+    sleeve_run_ids: tuple[str, ...],
+) -> PortfolioRunResult:
+    if not sleeve_run_ids:
+        raise ValueError("portfolio run requires at least one sleeve run id")
+    if starting_capital_usdc <= 0.0:
+        raise ValueError("starting_capital_usdc must be positive")
 
-    return PortfolioRunResult(
-        run_id=run_id,
-        run_dir=run_dir,
-        analysis=analysis,
-        weight_history=tuple(weight_rows),
-        diagnostics=tuple(diagnostic_rows),
-        contributions=contributions,
-        sleeve_run_ids=tuple(sleeve_run_ids),
+    sleeves = [
+        load_strategy_sleeve_research(base_runs_dir=base_runs_dir, run_id=run_id)
+        for run_id in sleeve_run_ids
+    ]
+    _validate_unique_strategy_instance_ids(sleeves)
+    dataset_ids = {sleeve.analysis.dataset_id for sleeve in sleeves}
+    if dataset.dataset_id not in dataset_ids:
+        raise ValueError(
+            f"selected sleeve runs do not belong to requested dataset '{dataset.dataset_id}'"
+        )
+    if len(dataset_ids) != 1:
+        raise ValueError("selected sleeve runs must all belong to the same dataset")
+
+    return _run_portfolio_research_from_resolved_sleeves(
+        base_runs_dir=base_runs_dir,
+        dataset=dataset,
+        optimizer_config=optimizer_config,
+        starting_capital_usdc=starting_capital_usdc,
+        sleeves=sleeves,
+        strategy_instances=[
+            dict(sleeve.strategy_instance_payload)
+            for sleeve in sleeves
+        ],
     )
 
 
@@ -389,10 +342,16 @@ def load_or_run_strategy_sleeve_research(
         config_fingerprint=config_fingerprint,
     )
     if cached_run_dir is not None:
+        analysis = _coerce_sleeve_analysis(load_strategy_sleeve_analysis(cached_run_dir))
+        manifest = _load_json(cached_run_dir / "manifest.json")
         return ResolvedStrategySleeve(
             run_id=cached_run_dir.name,
             run_dir=cached_run_dir,
-            analysis=_coerce_sleeve_analysis(load_strategy_sleeve_analysis(cached_run_dir)),
+            analysis=analysis,
+            strategy_instance_payload=_coerce_strategy_instance_payload(
+                manifest.get("strategy_instance"),
+                analysis=analysis,
+            ),
         )
 
     result = run_strategy_sleeve(
@@ -405,7 +364,164 @@ def load_or_run_strategy_sleeve_research(
         run_id=result.run_id,
         run_dir=result.run_dir,
         analysis=result.sleeve_analysis,
+        strategy_instance_payload=strategy_instance.to_payload(),
     )
+
+
+def load_strategy_sleeve_research(
+    *,
+    base_runs_dir: Path,
+    run_id: str,
+) -> ResolvedStrategySleeve:
+    run_dir = base_runs_dir / "backtests" / "sleeves" / run_id
+    if not run_dir.exists():
+        raise FileNotFoundError(f"strategy sleeve not found: {run_id}")
+    analysis = _coerce_sleeve_analysis(load_strategy_sleeve_analysis(run_dir))
+    manifest = _load_json(run_dir / "manifest.json")
+    return ResolvedStrategySleeve(
+        run_id=run_id,
+        run_dir=run_dir,
+        analysis=analysis,
+        strategy_instance_payload=_coerce_strategy_instance_payload(
+            manifest.get("strategy_instance"),
+            analysis=analysis,
+        ),
+    )
+
+
+def _run_portfolio_research_from_resolved_sleeves(
+    *,
+    base_runs_dir: Path,
+    dataset: HistoricalDataset,
+    optimizer_config: PortfolioOptimizationConfig,
+    starting_capital_usdc: float,
+    sleeves: list[ResolvedStrategySleeve],
+    strategy_instances: list[dict[str, object]],
+) -> PortfolioRunResult:
+    sleeve_payloads: list[dict[str, object]] = []
+    sleeve_run_ids = [sleeve.run_id for sleeve in sleeves]
+    sleeve_analyses = [sleeve.analysis for sleeve in sleeves]
+    for sleeve in sleeves:
+        sleeve_payloads.append(
+            {
+                "strategy_instance_id": sleeve.analysis.strategy_instance_id,
+                "strategy_id": sleeve.analysis.strategy_id,
+                "dataset_id": sleeve.analysis.dataset_id,
+                "config_fingerprint": sleeve.analysis.config_fingerprint,
+                "daily_returns": [
+                    {"label": point.label, "value": point.value}
+                    for point in sleeve.analysis.daily_returns
+                ],
+            }
+        )
+
+    optimization = optimize_strategy_portfolio(
+        [load_sleeve_return_stream(payload) for payload in sleeve_payloads],
+        config=optimizer_config,
+    )
+    created_at = datetime.now(timezone.utc)
+    run_id = created_at.strftime("%Y%m%dT%H%M%S%fZ")
+    run_dir = base_runs_dir / "backtests" / "portfolio-runs" / run_id
+    run_dir.mkdir(parents=True, exist_ok=False)
+
+    analysis, contributions, weight_rows, diagnostic_rows = build_portfolio_run_analysis(
+        run_id=run_id,
+        created_at=created_at,
+        dataset=dataset,
+        optimization=optimization,
+        sleeves=sleeve_analyses,
+        sleeve_run_ids=tuple(sleeve_run_ids),
+        starting_capital_usdc=starting_capital_usdc,
+        turnover_cost_bps=optimizer_config.turnover_cost_bps,
+    )
+
+    manifest = {
+        "run_id": run_id,
+        "created_at": created_at.isoformat(),
+        "mode": "portfolio_research",
+        "dataset_id": dataset.dataset_id,
+        "dataset_fingerprint": dataset.fingerprint,
+        "dataset_source": dataset.source,
+        "dataset_version": dataset.version,
+        "date_range_start": dataset.start.isoformat(),
+        "date_range_end": dataset.end.isoformat(),
+        "analysis_path": "analysis.json",
+        "weights_path": "weights.ndjson",
+        "diagnostics_path": "diagnostics.ndjson",
+        "contributions_path": "contributions.json",
+        "strategy_instances": strategy_instances,
+        "strategy_instance_ids": [sleeve.analysis.strategy_instance_id for sleeve in sleeves],
+        "sleeve_run_ids": list(sleeve_run_ids),
+    }
+    config_payload = {
+        "optimizer": asdict(optimizer_config),
+        "starting_capital_usdc": starting_capital_usdc,
+    }
+    state_payload = {
+        "run_id": run_id,
+        "dataset_id": dataset.dataset_id,
+        "latest_date": analysis.net_return_series[-1].label if analysis.net_return_series else None,
+        "ending_equity_usdc": analysis.ending_equity_usdc,
+        "total_pnl_usdc": analysis.total_pnl_usdc,
+        "total_return_pct": analysis.total_return_pct,
+        "sharpe_ratio": analysis.sharpe_ratio,
+        "max_drawdown_usdc": analysis.max_drawdown_usdc,
+        "total_turnover_usdc": analysis.total_turnover_usdc,
+        "latest_weights": weight_rows[-1]["weights"] if weight_rows else {},
+        "latest_cash_weight": weight_rows[-1]["cash_weight"] if weight_rows else 1.0,
+        "latest_gross_weight": weight_rows[-1]["gross_weight"] if weight_rows else 0.0,
+    }
+    contributions_payload = {
+        "items": [asdict(item) for item in contributions],
+        "transaction_cost_total_usdc": analysis.transaction_cost_total_usdc,
+        "transaction_cost_series_usdc": [asdict(point) for point in analysis.transaction_cost_series_usdc],
+    }
+
+    _write_json(run_dir / "manifest.json", manifest)
+    _write_json(run_dir / "config.json", config_payload)
+    _write_json(run_dir / "state.json", state_payload)
+    _write_json(run_dir / "analysis.json", asdict(analysis))
+    _write_json(run_dir / "contributions.json", contributions_payload)
+    _write_ndjson(run_dir / "weights.ndjson", weight_rows)
+    _write_ndjson(run_dir / "diagnostics.ndjson", diagnostic_rows)
+
+    return PortfolioRunResult(
+        run_id=run_id,
+        run_dir=run_dir,
+        analysis=analysis,
+        weight_history=tuple(weight_rows),
+        diagnostics=tuple(diagnostic_rows),
+        contributions=contributions,
+        sleeve_run_ids=tuple(sleeve_run_ids),
+    )
+
+
+def _validate_unique_strategy_instance_ids(sleeves: list[ResolvedStrategySleeve]) -> None:
+    seen_strategy_instance_ids: set[str] = set()
+    for sleeve in sleeves:
+        strategy_instance_id = sleeve.analysis.strategy_instance_id
+        if strategy_instance_id in seen_strategy_instance_ids:
+            raise ValueError(
+                f"selected sleeve runs contain duplicate strategy_instance_id '{strategy_instance_id}'"
+            )
+        seen_strategy_instance_ids.add(strategy_instance_id)
+
+
+def _coerce_strategy_instance_payload(
+    payload: object,
+    *,
+    analysis: StrategySleeveAnalysis,
+) -> dict[str, object]:
+    if isinstance(payload, dict):
+        return {
+            key: value
+            for key, value in payload.items()
+            if isinstance(key, str)
+        }
+    return {
+        "strategy_instance_id": analysis.strategy_instance_id,
+        "strategy_id": analysis.strategy_id,
+    }
 
 
 def _find_cached_sleeve_run(
