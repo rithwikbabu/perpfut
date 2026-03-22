@@ -687,7 +687,7 @@ export function BacktestsShell() {
                     (sum, value) => sum + value,
                     0,
                   );
-                  const active = dataset.datasetId === selectedDatasetId;
+                  const active = dataset.datasetId === selectedDataset?.datasetId;
                   return (
                     <button
                       key={dataset.datasetId}

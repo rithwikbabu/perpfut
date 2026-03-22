@@ -238,6 +238,7 @@ describe("BacktestsShell", () => {
     expect(screen.getByText("Cached dataset registry")).toBeInTheDocument();
     expect(screen.getAllByText("dataset-1").length).toBeGreaterThan(0);
     expect(screen.queryByText("No cached datasets yet.")).not.toBeInTheDocument();
+    expect(screen.getByText("selected")).toBeInTheDocument();
     expect(screen.getByText("Selected suite ranking")).toBeInTheDocument();
     expect(screen.getByText("Completed backtest runs")).toBeInTheDocument();
     expect((await screen.findAllByText("Completed strategy 1 of 2: momentum")).length).toBeGreaterThan(0);
