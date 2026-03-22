@@ -57,7 +57,10 @@ Important behavior:
 
 - invalid strategy IDs are rejected before any historical data fetches occur
 - backtest suites require at least one executable cycle
-- list/show/compare surface clean CLI exits for missing or invalid artifacts
+- `backtest show` and `backtest compare` surface clean CLI exits for missing or
+  invalid artifacts
+- `backtest list` skips malformed suite manifests and returns the remaining
+  readable suites
 
 ## Artifact Layout
 
