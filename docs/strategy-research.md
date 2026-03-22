@@ -71,7 +71,8 @@ Allowed `risk_overrides` in v1:
 - duplicate products in `universe` are rejected
 - unknown parameter keys are rejected
 - `lookback_candles` must remain an integer
-- numeric overrides must be valid, and `max_gross_position` must remain positive
+- numeric strategy params and risk overrides must be finite, and `max_gross_position`
+  must remain positive
 
 ## Backward compatibility
 

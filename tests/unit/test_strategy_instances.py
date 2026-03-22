@@ -88,6 +88,19 @@ def test_parse_strategy_instance_specs_rejects_unknown_param_keys() -> None:
         )
 
 
+def test_parse_strategy_instance_specs_rejects_unknown_strategy_ids() -> None:
+    with pytest.raises(ValueError, match="unknown strategy_id 'unknown'"):
+        parse_strategy_instance_specs(
+            [
+                {
+                    "strategy_instance_id": "bad-strategy",
+                    "strategy_id": "unknown",
+                    "universe": ["BTC-PERP-INTX"],
+                }
+            ]
+        )
+
+
 def test_parse_strategy_instance_specs_rejects_boolean_numeric_values() -> None:
     with pytest.raises(ValueError, match="must be numeric"):
         parse_strategy_instance_specs(
@@ -133,6 +146,31 @@ def test_parse_strategy_instance_specs_rejects_fractional_lookback_and_zero_gros
                     "strategy_id": "momentum",
                     "universe": ["BTC-PERP-INTX"],
                     "risk_overrides": {"max_gross_position": 0.0},
+                }
+            ]
+        )
+
+
+def test_parse_strategy_instance_specs_rejects_non_finite_numeric_values() -> None:
+    with pytest.raises(ValueError, match="must be finite"):
+        parse_strategy_instance_specs(
+            [
+                {
+                    "strategy_instance_id": "nan-scale",
+                    "strategy_id": "momentum",
+                    "universe": ["BTC-PERP-INTX"],
+                    "strategy_params": {"signal_scale": float("nan")},
+                }
+            ]
+        )
+    with pytest.raises(ValueError, match="must be finite"):
+        parse_strategy_instance_specs(
+            [
+                {
+                    "strategy_instance_id": "inf-risk",
+                    "strategy_id": "momentum",
+                    "universe": ["BTC-PERP-INTX"],
+                    "risk_overrides": {"max_abs_position": float("inf")},
                 }
             ]
         )

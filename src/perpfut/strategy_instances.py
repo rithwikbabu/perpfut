@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -190,7 +191,10 @@ def _parse_strategy_params(value: Any, *, index: int, source: str) -> dict[str, 
             if numeric_value <= 0:
                 raise ValueError("lookback_candles must be positive")
         else:
-            numeric_value = float(item)
+            numeric_value = _require_finite_numeric(
+                item,
+                field_name=f"strategy param '{key}'",
+            )
         params[key] = numeric_value
     return params
 
@@ -213,7 +217,7 @@ def _parse_risk_overrides(value: Any, *, index: int, source: str) -> dict[str, f
             raise ValueError(
                 f"risk override '{key}' for strategy instance at index {index} in {source} must be numeric"
             )
-        numeric_value = float(item)
+        numeric_value = _require_finite_numeric(item, field_name=f"risk override '{key}'")
         if numeric_value < 0.0:
             raise ValueError(f"risk override '{key}' must be non-negative")
         if key == "max_gross_position" and numeric_value <= 0.0:
@@ -234,3 +238,10 @@ def _require_non_empty_string(
             f"strategy instance at index {index} in {source} must define a non-empty {field_name}"
         )
     return value.strip()
+
+
+def _require_finite_numeric(value: float | int, *, field_name: str) -> float:
+    numeric_value = float(value)
+    if not math.isfinite(numeric_value):
+        raise ValueError(f"{field_name} must be finite")
+    return numeric_value
