@@ -51,9 +51,9 @@ class DashboardOverviewResponse(BaseModel):
 
 class PaperRunRequest(BaseModel):
     product_id: str = Field(alias="productId")
-    iterations: int
-    interval_seconds: int = Field(alias="intervalSeconds")
-    starting_collateral_usdc: float = Field(alias="startingCollateralUsdc")
+    iterations: int = Field(ge=1)
+    interval_seconds: int = Field(alias="intervalSeconds", ge=0)
+    starting_collateral_usdc: float = Field(alias="startingCollateralUsdc", gt=0)
 
     model_config = {
         "populate_by_name": True,
