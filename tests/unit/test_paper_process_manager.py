@@ -55,7 +55,13 @@ def _write_metadata(tmp_path, *, pid: int = 5678) -> None:
 
 def test_start_persists_metadata_and_rejects_duplicate(monkeypatch, tmp_path) -> None:
     manager = PaperProcessManager(tmp_path)
-    monkeypatch.setattr("subprocess.Popen", lambda *args, **kwargs: DummyProcess(4321))
+    captured = {}
+
+    def fake_popen(*args, **kwargs):
+        captured["env"] = kwargs.get("env", {})
+        return DummyProcess(4321)
+
+    monkeypatch.setattr("subprocess.Popen", fake_popen)
     monkeypatch.setattr("time.sleep", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(manager, "_is_process_alive", lambda pid: pid == 4321)
 
@@ -66,6 +72,7 @@ def test_start_persists_metadata_and_rejects_duplicate(monkeypatch, tmp_path) ->
     payload = json.loads((tmp_path / "control" / "active_paper.json").read_text(encoding="utf-8"))
     assert payload["pid"] == 4321
     assert payload["strategy_id"] == "momentum"
+    assert captured["env"]["STRATEGY_ID"] == "momentum"
 
     with pytest.raises(PaperRunConflictError):
         manager.start(_request())

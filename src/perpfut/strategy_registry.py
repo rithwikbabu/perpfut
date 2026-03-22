@@ -6,6 +6,8 @@ from collections.abc import Callable, Sequence
 
 from .config import StrategyConfig
 from .domain import Candle, SignalDecision
+from .signal_mean_reversion import STRATEGY_ID as MEAN_REVERSION_STRATEGY_ID
+from .signal_mean_reversion import compute_signal as compute_mean_reversion_signal
 from .signal_momentum import STRATEGY_ID as MOMENTUM_STRATEGY_ID
 from .signal_momentum import compute_signal as compute_momentum_signal
 
@@ -40,6 +42,18 @@ def _compute_momentum(candles: Sequence[Candle], strategy: StrategyConfig) -> Si
     )
 
 
+def _compute_mean_reversion(
+    candles: Sequence[Candle],
+    strategy: StrategyConfig,
+) -> SignalDecision:
+    return compute_mean_reversion_signal(
+        candles,
+        lookback_candles=strategy.lookback_candles,
+        signal_scale=strategy.signal_scale,
+    )
+
+
 STRATEGY_REGISTRY: dict[str, StrategyHandler] = {
     MOMENTUM_STRATEGY_ID: _compute_momentum,
+    MEAN_REVERSION_STRATEGY_ID: _compute_mean_reversion,
 }

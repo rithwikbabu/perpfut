@@ -4,6 +4,7 @@ import pytest
 
 from perpfut.config import StrategyConfig
 from perpfut.domain import Candle
+from perpfut.signal_mean_reversion import compute_signal as compute_mean_reversion_signal
 from perpfut.signal_momentum import compute_signal as compute_momentum_signal
 from perpfut.strategy_registry import compute_strategy_signal
 
@@ -39,3 +40,13 @@ def test_registry_rejects_unknown_strategy() -> None:
 
     with pytest.raises(ValueError, match="unknown strategy_id"):
         compute_strategy_signal(candles, strategy)
+
+
+def test_registry_dispatches_mean_reversion() -> None:
+    candles = _build_candles()
+    strategy = StrategyConfig(strategy_id="mean_reversion", lookback_candles=20, signal_scale=35.0)
+
+    direct = compute_mean_reversion_signal(candles, lookback_candles=20, signal_scale=35.0)
+    dispatched = compute_strategy_signal(candles, strategy)
+
+    assert dispatched == direct
