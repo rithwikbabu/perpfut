@@ -99,3 +99,29 @@ def test_shared_capital_backtest_runner_clips_mixed_book_gross_exposure(monkeypa
     assert set(first_cycle.assets) == {"BTC-PERP-INTX", "ETH-PERP-INTX"}
     assert first_cycle.assets["BTC-PERP-INTX"].fill is not None
     assert first_cycle.assets["ETH-PERP-INTX"].fill is not None
+
+
+def test_shared_capital_backtest_runner_uses_selected_products_for_alignment(monkeypatch) -> None:
+    monkeypatch.setenv("LOOKBACK_CANDLES", "2")
+    monkeypatch.setenv("SIGNAL_SCALE", "200")
+    monkeypatch.setenv("REBALANCE_THRESHOLD", "0.0")
+    monkeypatch.setenv("MIN_TRADE_NOTIONAL_USDC", "0.0")
+    monkeypatch.setenv("SLIPPAGE_BPS", "0.0")
+    config = AppConfig.from_env()
+    dataset = _build_dataset(
+        products={
+            "BTC-PERP-INTX": [100.0, 101.0, 102.0, 103.0],
+            "ETH-PERP-INTX": [200.0, 201.0, 202.0, 203.0],
+            "SOL-PERP-INTX": [50.0, 51.0, 53.0],
+        }
+    )
+    runner = SharedCapitalBacktestRunner(
+        config=config,
+        dataset=dataset,
+        products=["BTC-PERP-INTX", "ETH-PERP-INTX"],
+    )
+
+    results = runner.run()
+
+    assert len(results) == 2
+    assert set(results[0].assets) == {"BTC-PERP-INTX", "ETH-PERP-INTX"}

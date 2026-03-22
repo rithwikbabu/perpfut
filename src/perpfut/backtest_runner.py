@@ -77,8 +77,9 @@ class SharedCapitalBacktestRunner:
 
     def run(self) -> list[BacktestCycleResult]:
         results: list[BacktestCycleResult] = []
+        dataset = select_dataset_products(self.dataset, products=self.products)
         steps = synthesize_aligned_backtest_steps(
-            self.dataset,
+            dataset,
             lookback_candles=self.config.strategy.lookback_candles,
         )
         for cycle_number, step in enumerate(steps, start=1):
@@ -243,4 +244,27 @@ def summarize_portfolio(
         equity_usdc=equity_usdc,
         gross_notional_usdc=gross_notional_usdc,
         net_notional_usdc=net_notional_usdc,
+    )
+
+
+def select_dataset_products(
+    dataset: HistoricalDataset,
+    *,
+    products: Iterable[str],
+) -> HistoricalDataset:
+    selected = tuple(products)
+    missing = [product_id for product_id in selected if product_id not in dataset.candles_by_product]
+    if missing:
+        raise ValueError(f"dataset is missing requested products: {', '.join(sorted(missing))}")
+    return HistoricalDataset(
+        dataset_id=dataset.dataset_id,
+        created_at=dataset.created_at,
+        products=selected,
+        start=dataset.start,
+        end=dataset.end,
+        granularity=dataset.granularity,
+        candles_by_product={
+            product_id: dataset.candles_by_product[product_id]
+            for product_id in selected
+        },
     )
