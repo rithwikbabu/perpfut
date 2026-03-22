@@ -54,7 +54,7 @@ def test_paper_main_exits_cleanly_for_unknown_strategy(monkeypatch, tmp_path) ->
             ]
         )
     except SystemExit as exc:
-        assert str(exc) == "unknown strategy_id 'unknown'; available strategies: momentum"
+        assert str(exc) == "unknown strategy_id 'unknown'; available strategies: mean_reversion, momentum"
     else:
         raise AssertionError("expected SystemExit")
 

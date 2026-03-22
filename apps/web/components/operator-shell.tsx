@@ -37,6 +37,7 @@ import {
 
 const DEFAULT_PAPER_FORM = {
   productId: "BTC-PERP-INTX",
+  strategyId: "momentum",
   iterations: "1440",
   intervalSeconds: "60",
   startingCollateralUsdc: "10000",
@@ -329,6 +330,41 @@ function ControlField({
   );
 }
 
+function ControlSelect({
+  label,
+  name,
+  value,
+  onChange,
+  disabled,
+  options,
+}: {
+  label: string;
+  name: string;
+  value: string;
+  onChange: (name: string, value: string) => void;
+  disabled: boolean;
+  options: Array<{ value: string; label: string }>;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-2 block text-[11px] uppercase tracking-[0.22em] text-[var(--muted)]">{label}</span>
+      <select
+        aria-label={label}
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(name, event.target.value)}
+        className="mono w-full border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-3 text-sm text-[var(--text)] outline-none transition focus:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 function PaperControlPanel({
   activeRun,
   latestRunId,
@@ -373,6 +409,17 @@ function PaperControlPanel({
               value={form.productId}
               onChange={onFieldChange}
               disabled={isActive || pendingAction !== null}
+            />
+            <ControlSelect
+              label="Strategy"
+              name="strategyId"
+              value={form.strategyId}
+              onChange={onFieldChange}
+              disabled={isActive || pendingAction !== null}
+              options={[
+                { value: "momentum", label: "Momentum" },
+                { value: "mean_reversion", label: "Mean Reversion" },
+              ]}
             />
             <ControlField
               label="Iterations"
@@ -444,6 +491,10 @@ function PaperControlPanel({
               <dd className="mono text-[var(--text)]">{activeRun?.product_id ?? form.productId}</dd>
             </div>
             <div className="flex items-center justify-between gap-4">
+              <dt className="text-[var(--muted)]">Strategy</dt>
+              <dd className="mono text-[var(--text)]">{activeRun?.strategy_id ?? form.strategyId}</dd>
+            </div>
+            <div className="flex items-center justify-between gap-4">
               <dt className="text-[var(--muted)]">Started</dt>
               <dd className="text-[var(--text)]">{formatTimestamp(activeRun?.started_at ?? null)}</dd>
             </div>
@@ -475,12 +526,16 @@ function parsePaperRunRequest(form: typeof DEFAULT_PAPER_FORM): {
   error: string | null;
 } {
   const productId = form.productId.trim();
+  const strategyId = form.strategyId.trim();
   const iterations = Number.parseInt(form.iterations, 10);
   const intervalSeconds = Number.parseInt(form.intervalSeconds, 10);
   const startingCollateralUsdc = Number.parseFloat(form.startingCollateralUsdc);
 
   if (!productId) {
     return { request: null, error: "Product ID is required." };
+  }
+  if (!strategyId) {
+    return { request: null, error: "Strategy is required." };
   }
   if (!Number.isInteger(iterations) || iterations <= 0) {
     return { request: null, error: "Iterations must be a positive integer." };
@@ -495,6 +550,7 @@ function parsePaperRunRequest(form: typeof DEFAULT_PAPER_FORM): {
   return {
     request: {
       productId,
+      strategyId,
       iterations,
       intervalSeconds,
       startingCollateralUsdc,

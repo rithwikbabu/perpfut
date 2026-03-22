@@ -202,6 +202,7 @@ describe("OperatorShell", () => {
           started_at: null,
           run_id: null,
           product_id: null,
+          strategy_id: null,
           iterations: null,
           interval_seconds: null,
           starting_collateral_usdc: null,
@@ -216,6 +217,7 @@ describe("OperatorShell", () => {
       started_at: "2026-03-22T02:01:00Z",
       run_id: null,
       product_id: "BTC-PERP-INTX",
+      strategy_id: "mean_reversion",
       iterations: 1440,
       interval_seconds: 60,
       starting_collateral_usdc: 10000,
@@ -231,11 +233,13 @@ describe("OperatorShell", () => {
     expect(screen.getByText("Latest Cycle Decision")).toBeInTheDocument();
     expect(screen.getByText("Filled a rebalance order toward the target position.")).toBeInTheDocument();
 
+    await userEvent.selectOptions(screen.getByLabelText("Strategy"), "mean_reversion");
     await userEvent.click(screen.getByRole("button", { name: "Start Paper Run" }));
 
     await waitFor(() =>
       expect(mockedStartPaperRun).toHaveBeenCalledWith({
         productId: "BTC-PERP-INTX",
+        strategyId: "mean_reversion",
         iterations: 1440,
         intervalSeconds: 60,
         startingCollateralUsdc: 10000,
@@ -243,6 +247,7 @@ describe("OperatorShell", () => {
     );
     expect(await screen.findByText("Paper run started for BTC-PERP-INTX.")).toBeInTheDocument();
     expect(screen.getByText("PID 4321")).toBeInTheDocument();
+    expect(screen.getByText("mean_reversion")).toBeInTheDocument();
   });
 
   it("stops an active paper run", async () => {
@@ -260,6 +265,7 @@ describe("OperatorShell", () => {
           started_at: "2026-03-22T02:01:00Z",
           run_id: null,
           product_id: "BTC-PERP-INTX",
+          strategy_id: "momentum",
           iterations: 1440,
           interval_seconds: 60,
           starting_collateral_usdc: 10000,
@@ -274,6 +280,7 @@ describe("OperatorShell", () => {
       started_at: null,
       run_id: null,
       product_id: "BTC-PERP-INTX",
+      strategy_id: "momentum",
       iterations: 1440,
       interval_seconds: 60,
       starting_collateral_usdc: 10000,
@@ -304,6 +311,7 @@ describe("OperatorShell", () => {
           started_at: null,
           run_id: null,
           product_id: null,
+          strategy_id: null,
           iterations: null,
           interval_seconds: null,
           starting_collateral_usdc: null,
@@ -342,6 +350,7 @@ describe("OperatorShell", () => {
           started_at: null,
           run_id: null,
           product_id: null,
+          strategy_id: null,
           iterations: null,
           interval_seconds: null,
           starting_collateral_usdc: null,
@@ -377,6 +386,7 @@ describe("OperatorShell", () => {
           started_at: null,
           run_id: null,
           product_id: null,
+          strategy_id: null,
           iterations: null,
           interval_seconds: null,
           starting_collateral_usdc: null,
@@ -422,6 +432,7 @@ describe("OperatorShell", () => {
           started_at: null,
           run_id: null,
           product_id: null,
+          strategy_id: null,
           iterations: null,
           interval_seconds: null,
           starting_collateral_usdc: null,

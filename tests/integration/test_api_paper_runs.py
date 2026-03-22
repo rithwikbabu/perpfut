@@ -42,7 +42,7 @@ def test_start_and_stop_paper_routes(monkeypatch) -> None:
         "/api/paper-runs",
         json={
             "productId": "BTC-PERP-INTX",
-            "strategyId": "momentum",
+            "strategyId": "mean_reversion",
             "iterations": 12,
             "intervalSeconds": 60,
             "startingCollateralUsdc": 15000,
@@ -53,8 +53,9 @@ def test_start_and_stop_paper_routes(monkeypatch) -> None:
     assert start_response.status_code == 201
     assert start_response.json()["active"] is True
     assert start_response.json()["product_id"] == "BTC-PERP-INTX"
-    assert start_response.json()["strategy_id"] == "momentum"
+    assert start_response.json()["strategy_id"] == "mean_reversion"
     assert manager.started is not None
+    assert manager.started.strategy_id == "mean_reversion"
 
     assert stop_response.status_code == 200
     assert stop_response.json()["active"] is False
