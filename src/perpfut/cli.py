@@ -8,6 +8,7 @@ import os
 from dataclasses import asdict
 from pathlib import Path
 
+from .analysis import analyze_run
 from .api.server import run_api_server
 from .config import AppConfig
 from .domain import Mode
@@ -41,6 +42,12 @@ def build_parser() -> argparse.ArgumentParser:
     state_parser.add_argument("--runs-dir", type=Path, default=None)
     state_parser.add_argument("--mode", choices=["paper", "live"], default="live")
     state_parser.add_argument("--product-id", default=None)
+
+    analyze_parser = subparsers.add_parser("analyze", help="analyze a run's performance artifacts")
+    analyze_parser.add_argument("--run-id", default=None)
+    analyze_parser.add_argument("--runs-dir", type=Path, default=None)
+    analyze_parser.add_argument("--mode", choices=["paper", "live"], default="paper")
+    analyze_parser.add_argument("--product-id", default=None)
 
     reconcile_parser = subparsers.add_parser(
         "reconcile",
@@ -84,6 +91,8 @@ def main(argv: list[str] | None = None) -> int:
         return _list_runs(args)
     if args.command == "state":
         return _show_state(args)
+    if args.command == "analyze":
+        return _run_analyze(args)
     if args.command == "reconcile":
         return _run_reconcile(args)
     if args.command == "preflight":
@@ -145,6 +154,31 @@ def _show_state(args: argparse.Namespace) -> int:
         if run_dir is None:
             raise SystemExit("no runs found")
     print(json.dumps(load_run_state(run_dir), indent=2, sort_keys=True))
+    return 0
+
+
+def _run_analyze(args: argparse.Namespace) -> int:
+    config = AppConfig.from_env().with_overrides(runs_dir=args.runs_dir)
+    if args.run_id:
+        run_dir = config.runtime.runs_dir / args.run_id
+        if not run_dir.exists():
+            raise SystemExit(f"run not found: {args.run_id}")
+    else:
+        run_dir = find_latest_run(
+            config.runtime.runs_dir,
+            mode=args.mode,
+            product_id=args.product_id,
+            require_state=True,
+        )
+        if run_dir is None:
+            raise SystemExit("no runs found")
+    try:
+        analysis = analyze_run(run_dir)
+    except FileNotFoundError as exc:
+        raise SystemExit(f"analysis inputs not found for run: {run_dir.name}") from exc
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise SystemExit(f"invalid analysis inputs for run: {run_dir.name}") from exc
+    print(json.dumps(asdict(analysis), indent=2, sort_keys=True))
     return 0
 
 

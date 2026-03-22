@@ -33,6 +33,7 @@ All routes are rooted at `/api`.
 - `GET /api/runs/{runId}/events?limit=`
 - `GET /api/runs/{runId}/fills?limit=`
 - `GET /api/runs/{runId}/positions?limit=`
+- `GET /api/runs/{runId}/analysis`
 - `GET /api/paper-runs/active`
 
 ### Control routes
@@ -60,6 +61,7 @@ The service allows only one active paper run at a time.
 - `latest_run`: newest readable run matching the requested mode
 - `latest_state`: raw latest checkpoint payload for the run
 - `latest_decision`: normalized operator-facing decision summary derived from the latest checkpoint
+- `latest_analysis`: canonical performance summary derived from the run artifacts
 - `recent_events`, `recent_fills`, `recent_positions`: newest-first artifact rows
 
 `latest_decision` contains:
@@ -75,6 +77,16 @@ The service allows only one active paper run at a time.
 - `fill`
 
 The nested decision objects use the same field names written into run artifacts.
+
+`GET /api/runs/{runId}/analysis` returns the same canonical analysis payload used by
+`latest_analysis`, including:
+
+- run identity: `run_id`, `mode`, `product_id`, `strategy_id`
+- timing: `started_at`, `ended_at`, `cycle_count`
+- pnl and return: `starting_equity_usdc`, `ending_equity_usdc`, `realized_pnl_usdc`, `unrealized_pnl_usdc`, `total_pnl_usdc`, `total_return_pct`
+- risk and activity: `max_drawdown_usdc`, `max_drawdown_pct`, `turnover_usdc`, `fill_count`, `trade_count`
+- exposure and decisions: `avg_abs_exposure_pct`, `max_abs_exposure_pct`, `decision_counts`
+- chart series: `equity_series`, `drawdown_series`, `exposure_series`
 
 ## Design Notes
 

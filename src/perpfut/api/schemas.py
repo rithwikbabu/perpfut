@@ -82,12 +82,45 @@ class LatestDecisionResponse(BaseModel):
     fill: dict[str, Any] | None = None
 
 
+class AnalysisSeriesPointResponse(BaseModel):
+    label: str
+    value: float
+
+
+class RunAnalysisResponse(BaseModel):
+    run_id: str
+    mode: str | None = None
+    product_id: str | None = None
+    strategy_id: str | None = None
+    started_at: str | None = None
+    ended_at: str | None = None
+    cycle_count: int
+    starting_equity_usdc: float
+    ending_equity_usdc: float
+    realized_pnl_usdc: float
+    unrealized_pnl_usdc: float
+    total_pnl_usdc: float
+    total_return_pct: float
+    max_drawdown_usdc: float
+    max_drawdown_pct: float
+    turnover_usdc: float
+    fill_count: int
+    trade_count: int
+    avg_abs_exposure_pct: float
+    max_abs_exposure_pct: float
+    decision_counts: dict[str, int]
+    equity_series: list[AnalysisSeriesPointResponse]
+    drawdown_series: list[AnalysisSeriesPointResponse]
+    exposure_series: list[AnalysisSeriesPointResponse]
+
+
 class DashboardOverviewResponse(BaseModel):
     mode: str
     generated_at: datetime
     latest_run: RunSummaryResponse | None = None
     latest_state: dict[str, Any] | None = None
     latest_decision: LatestDecisionResponse | None = None
+    latest_analysis: RunAnalysisResponse | None = None
     recent_events: list[dict[str, Any]] = Field(default_factory=list)
     recent_fills: list[dict[str, Any]] = Field(default_factory=list)
     recent_positions: list[dict[str, Any]] = Field(default_factory=list)

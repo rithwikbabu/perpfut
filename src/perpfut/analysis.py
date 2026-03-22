@@ -45,8 +45,8 @@ class RunAnalysis:
 
 
 def analyze_run(run_dir: Path) -> RunAnalysis:
-    manifest = load_run_manifest(run_dir)
-    state = load_run_state(run_dir)
+    manifest = _require_dict(load_run_manifest(run_dir), run_dir / "manifest.json")
+    state = _require_dict(load_run_state(run_dir), run_dir / "state.json")
     config = _load_optional_json(run_dir / "config.json") or {}
     events = _load_optional_ndjson(run_dir / "events.ndjson")
     positions = _load_optional_ndjson(run_dir / "positions.ndjson")
@@ -110,17 +110,21 @@ def analyze_run(run_dir: Path) -> RunAnalysis:
 def _load_optional_json(path: Path) -> dict[str, Any] | None:
     if not path.exists():
         return None
-    return json.loads(path.read_text(encoding="utf-8"))
+    return _require_dict(json.loads(path.read_text(encoding="utf-8")), path)
 
 
 def _load_optional_ndjson(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
-    return [
-        json.loads(line)
-        for line in path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    rows: list[dict[str, Any]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        payload = json.loads(line)
+        if not isinstance(payload, dict):
+            raise ValueError(f"invalid ndjson row in {path}")
+        rows.append(payload)
+    return rows
 
 
 def _resolve_max_abs_notional(config: dict[str, Any]) -> float:
@@ -359,3 +363,9 @@ def _as_float(value: Any) -> float | None:
 
 def _as_str(value: Any) -> str | None:
     return value if isinstance(value, str) else None
+
+
+def _require_dict(value: Any, path: Path) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"invalid json object in {path}")
+    return value

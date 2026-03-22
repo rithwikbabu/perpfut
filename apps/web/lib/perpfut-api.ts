@@ -36,9 +36,42 @@ export type DashboardOverviewResponse = {
   latest_run: RunSummary | null;
   latest_state: Record<string, unknown> | null;
   latest_decision: LatestDecision | null;
+  latest_analysis: RunAnalysis | null;
   recent_events: Record<string, unknown>[];
   recent_fills: Record<string, unknown>[];
   recent_positions: Record<string, unknown>[];
+};
+
+export type AnalysisSeriesPoint = {
+  label: string;
+  value: number;
+};
+
+export type RunAnalysis = {
+  run_id: string;
+  mode: string | null;
+  product_id: string | null;
+  strategy_id: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+  cycle_count: number;
+  starting_equity_usdc: number;
+  ending_equity_usdc: number;
+  realized_pnl_usdc: number;
+  unrealized_pnl_usdc: number;
+  total_pnl_usdc: number;
+  total_return_pct: number;
+  max_drawdown_usdc: number;
+  max_drawdown_pct: number;
+  turnover_usdc: number;
+  fill_count: number;
+  trade_count: number;
+  avg_abs_exposure_pct: number;
+  max_abs_exposure_pct: number;
+  decision_counts: Record<string, number>;
+  equity_series: AnalysisSeriesPoint[];
+  drawdown_series: AnalysisSeriesPoint[];
+  exposure_series: AnalysisSeriesPoint[];
 };
 
 export type SignalDecision = {
@@ -94,6 +127,8 @@ export type ArtifactListResponse = {
   items: Record<string, unknown>[];
   count: number;
 };
+
+export type RunAnalysisResponse = RunAnalysis;
 
 const API_BASE = "/api/perpfut";
 
