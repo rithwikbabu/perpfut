@@ -325,3 +325,53 @@ def test_portfolio_run_create_rejects_cross_dataset_sleeves(monkeypatch, tmp_pat
 
     assert response.status_code == 422
     assert response.json()["detail"] == "selected sleeve runs must all belong to the same dataset"
+
+
+def test_portfolio_run_create_rejects_duplicate_strategy_instance_ids(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("RUNS_DIR", str(tmp_path))
+    _write_sleeve_run(tmp_path, "sleeve-run-1", dataset_id="dataset-1", strategy_instance_id="shared")
+    _write_sleeve_run(
+        tmp_path,
+        "sleeve-run-2",
+        dataset_id="dataset-1",
+        strategy_instance_id="shared",
+        strategy_id="mean_reversion",
+    )
+    client = TestClient(create_app())
+
+    class FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+    class FakeBuilder:
+        def __init__(self, *, client, base_runs_dir):
+            self.base_runs_dir = base_runs_dir
+
+        def load_dataset(self, dataset_id):
+            return SimpleNamespace(
+                dataset_id=dataset_id,
+                fingerprint="fp-1",
+                source="coinbase",
+                version="1",
+                start=SimpleNamespace(isoformat=lambda: "2026-03-20T00:00:00+00:00"),
+                end=SimpleNamespace(isoformat=lambda: "2026-03-21T00:00:00+00:00"),
+            )
+
+    monkeypatch.setattr("perpfut.api.routers.backtests.CoinbasePublicClient", FakeClient)
+    monkeypatch.setattr("perpfut.api.routers.backtests.HistoricalDatasetBuilder", FakeBuilder)
+
+    response = client.post(
+        "/api/portfolio-runs",
+        json={
+            "datasetId": "dataset-1",
+            "sleeveRunIds": ["sleeve-run-1", "sleeve-run-2"],
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == (
+        "selected sleeve runs contain duplicate strategy_instance_id 'shared'"
+    )

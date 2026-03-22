@@ -140,6 +140,7 @@ def run_portfolio_research_from_sleeves(
         load_strategy_sleeve_research(base_runs_dir=base_runs_dir, run_id=run_id)
         for run_id in sleeve_run_ids
     ]
+    _validate_unique_strategy_instance_ids(sleeves)
     dataset_ids = {sleeve.analysis.dataset_id for sleeve in sleeves}
     if dataset.dataset_id not in dataset_ids:
         raise ValueError(
@@ -482,6 +483,17 @@ def _run_portfolio_research_from_resolved_sleeves(
         contributions=contributions,
         sleeve_run_ids=tuple(sleeve_run_ids),
     )
+
+
+def _validate_unique_strategy_instance_ids(sleeves: list[ResolvedStrategySleeve]) -> None:
+    seen_strategy_instance_ids: set[str] = set()
+    for sleeve in sleeves:
+        strategy_instance_id = sleeve.analysis.strategy_instance_id
+        if strategy_instance_id in seen_strategy_instance_ids:
+            raise ValueError(
+                f"selected sleeve runs contain duplicate strategy_instance_id '{strategy_instance_id}'"
+            )
+        seen_strategy_instance_ids.add(strategy_instance_id)
 
 
 def _find_cached_sleeve_run(
