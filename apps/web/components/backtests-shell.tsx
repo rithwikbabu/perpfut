@@ -306,8 +306,12 @@ export function BacktestsShell() {
     fetchJson,
     { refreshInterval: 2000 },
   );
+  const effectiveSelectedSleeveRunId =
+    selectedSleeveRunId && sleeves.data?.items.some((item) => item.run_id === selectedSleeveRunId)
+      ? selectedSleeveRunId
+      : null;
   const selectedSleeve = useSWR<StrategySleeveDetailResponse>(
-    selectedSleeveRunId ? `/sleeves/${selectedSleeveRunId}` : null,
+    effectiveSelectedSleeveRunId ? `/sleeves/${effectiveSelectedSleeveRunId}` : null,
     fetchJson,
     { refreshInterval: 2000 },
   );
@@ -821,13 +825,13 @@ export function BacktestsShell() {
               <ShellHeader
                 eyebrow="Attribution"
                 title="Selected sleeve attribution"
-                action={selectedSleeve.data?.run_id ?? "awaiting sleeve"}
+                action={effectiveSelectedSleeveRunId ?? "awaiting sleeve"}
               />
               {selectedSleeve.isLoading ? (
                 <LoadingBlock title="Loading sleeve attribution." />
               ) : selectedSleeve.error ? (
                 <ErrorBlock message={selectedSleeve.error.message} />
-              ) : selectedSleeve.data ? (
+              ) : effectiveSelectedSleeveRunId && selectedSleeve.data ? (
                 <div className="space-y-4">
                   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                     <MetricChip label="Return" value={formatSignedPercent(selectedSleeve.data.analysis.total_return_pct)} tone="accent" />

@@ -759,13 +759,15 @@ describe("BacktestsShell", () => {
 
     await userEvent.click(screen.getByRole("button", { name: /dataset-2/i }));
 
-    await waitFor(() =>
-      expect(screen.getByText("Select a sleeve to inspect attribution and daily metrics.")).toBeInTheDocument()
-    );
     const attributionPanel = screen
       .getByText("Selected sleeve attribution")
       .closest("section");
     expect(attributionPanel).not.toBeNull();
+    expect(within(attributionPanel as HTMLElement).queryByRole("cell", { name: "ETH-PERP-INTX" })).not.toBeInTheDocument();
+
+    await waitFor(() =>
+      expect(screen.getByText("Select a sleeve to inspect attribution and daily metrics.")).toBeInTheDocument()
+    );
     expect(within(attributionPanel as HTMLElement).queryByRole("cell", { name: "ETH-PERP-INTX" })).not.toBeInTheDocument();
   });
 
