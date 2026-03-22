@@ -15,6 +15,7 @@ from ..backtest_history import (
     load_backtest_run,
 )
 from ..backtest_data import list_dataset_summaries, load_dataset_summary
+from ..portfolio_history import compare_portfolio_runs, list_portfolio_runs, load_portfolio_run
 from pydantic import ValidationError
 from .schemas import (
     AnalysisSeriesPointResponse,
@@ -29,6 +30,15 @@ from .schemas import (
     ExecutionSummaryResponse,
     LatestDecisionResponse,
     NoTradeReasonResponse,
+    PortfolioContributionsResponse,
+    PortfolioDiagnosticResponse,
+    PortfolioRunAnalysisResponse,
+    PortfolioRunComparisonItemResponse,
+    PortfolioRunComparisonResponse,
+    PortfolioRunDetailResponse,
+    PortfolioRunSummaryResponse,
+    PortfolioRunsListResponse,
+    PortfolioWeightSnapshotResponse,
     RiskDecisionResponse,
     RunAnalysisResponse,
     RunSummaryResponse,
@@ -212,6 +222,106 @@ def load_backtest_suite_detail(suite_id: str) -> BacktestSuiteDetailResponse:
                 avg_abs_exposure_pct=item.avg_abs_exposure_pct,
                 max_abs_exposure_pct=item.max_abs_exposure_pct,
                 decision_counts=item.decision_counts,
+            )
+            for item in comparison.items
+        ],
+    )
+
+
+def list_portfolio_run_summaries(
+    *,
+    limit: int = 10,
+    dataset_id: str | None = None,
+) -> PortfolioRunsListResponse:
+    items = [
+        PortfolioRunSummaryResponse(
+            run_id=item.run_id,
+            created_at=item.created_at,
+            dataset_id=item.dataset_id,
+            date_range_start=item.date_range_start,
+            date_range_end=item.date_range_end,
+            sharpe_ratio=item.sharpe_ratio,
+            total_pnl_usdc=item.total_pnl_usdc,
+            total_return_pct=item.total_return_pct,
+            max_drawdown_usdc=item.max_drawdown_usdc,
+            max_drawdown_pct=item.max_drawdown_pct,
+            total_turnover_usdc=item.total_turnover_usdc,
+            avg_gross_weight=item.avg_gross_weight,
+            max_gross_weight=item.max_gross_weight,
+            strategy_instance_ids=list(item.strategy_instance_ids),
+        )
+        for item in list_portfolio_runs(get_runs_dir(), limit=limit, dataset_id=dataset_id)
+    ]
+    return PortfolioRunsListResponse(items=items, count=len(items))
+
+
+def load_portfolio_run_detail(run_id: str) -> PortfolioRunDetailResponse:
+    payload = load_portfolio_run(get_runs_dir(), run_id=run_id)
+    analysis_payload = payload.get("analysis")
+    manifest = payload.get("manifest")
+    config = payload.get("config")
+    state = payload.get("state")
+    weights = payload.get("weights")
+    diagnostics = payload.get("diagnostics")
+    contributions = payload.get("contributions")
+    if not isinstance(analysis_payload, dict):
+        raise ArtifactError(f"invalid portfolio analysis payload for: {run_id}")
+    if not isinstance(manifest, dict) or not isinstance(config, dict) or not isinstance(state, dict):
+        raise ArtifactError(f"invalid portfolio artifacts for: {run_id}")
+    if not isinstance(weights, list) or not isinstance(diagnostics, list) or not isinstance(contributions, dict):
+        raise ArtifactError(f"invalid portfolio artifacts for: {run_id}")
+    try:
+        return PortfolioRunDetailResponse(
+            run_id=run_id,
+            manifest=manifest,
+            config=config,
+            state=state,
+            analysis=PortfolioRunAnalysisResponse.model_validate(analysis_payload),
+            weights=[PortfolioWeightSnapshotResponse.model_validate(item) for item in weights],
+            diagnostics=[PortfolioDiagnosticResponse.model_validate(item) for item in diagnostics],
+            contributions=PortfolioContributionsResponse.model_validate(contributions),
+        )
+    except ValidationError as exc:
+        raise ArtifactError(f"invalid portfolio artifacts for: {run_id}") from exc
+
+
+def load_portfolio_run_analysis(run_id: str) -> PortfolioRunAnalysisResponse:
+    payload = load_portfolio_run(get_runs_dir(), run_id=run_id)
+    analysis_payload = payload.get("analysis")
+    if not isinstance(analysis_payload, dict):
+        raise ArtifactError(f"invalid portfolio analysis payload for: {run_id}")
+    try:
+        return PortfolioRunAnalysisResponse.model_validate(analysis_payload)
+    except ValidationError as exc:
+        raise ArtifactError(f"invalid portfolio analysis payload for: {run_id}") from exc
+
+
+def load_portfolio_run_comparison(
+    *,
+    limit: int = 10,
+    dataset_id: str | None = None,
+) -> PortfolioRunComparisonResponse:
+    comparison = compare_portfolio_runs(get_runs_dir(), limit=limit, dataset_id=dataset_id)
+    return PortfolioRunComparisonResponse(
+        dataset_id=comparison.dataset_id,
+        ranking_policy=comparison.ranking_policy,
+        items=[
+            PortfolioRunComparisonItemResponse(
+                rank=item.rank,
+                run_id=item.run_id,
+                created_at=item.created_at,
+                dataset_id=item.dataset_id,
+                date_range_start=item.date_range_start,
+                date_range_end=item.date_range_end,
+                sharpe_ratio=item.sharpe_ratio,
+                total_pnl_usdc=item.total_pnl_usdc,
+                total_return_pct=item.total_return_pct,
+                max_drawdown_usdc=item.max_drawdown_usdc,
+                max_drawdown_pct=item.max_drawdown_pct,
+                total_turnover_usdc=item.total_turnover_usdc,
+                avg_gross_weight=item.avg_gross_weight,
+                max_gross_weight=item.max_gross_weight,
+                strategy_instance_ids=list(item.strategy_instance_ids),
             )
             for item in comparison.items
         ],

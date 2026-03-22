@@ -17,14 +17,21 @@ from ..repository import (
     list_dataset_summary_responses,
     list_backtest_run_summaries,
     list_backtest_suite_summaries,
+    list_portfolio_run_summaries,
     load_artifact_list,
     load_backtest_run_detail,
     load_backtest_suite_detail,
     load_dataset_summary_response,
+    load_portfolio_run_analysis,
+    load_portfolio_run_comparison,
+    load_portfolio_run_detail,
     load_run_analysis,
 )
 from ...backtest_data import HistoricalDatasetBuilder
 from ...exchange_coinbase import CoinbasePublicClient
+from ...portfolio_optimizer import PortfolioOptimizationConfig
+from ...portfolio_runs import run_portfolio_research
+from ...strategy_instances import parse_strategy_instance_specs
 from ..schemas import (
     ArtifactListResponse,
     BacktestJobStatusResponse,
@@ -36,6 +43,11 @@ from ..schemas import (
     DatasetBuildRequest,
     DatasetSummaryResponse,
     DatasetsListResponse,
+    PortfolioRunAnalysisResponse,
+    PortfolioRunComparisonResponse,
+    PortfolioRunDetailResponse,
+    PortfolioRunRequest,
+    PortfolioRunsListResponse,
     RunAnalysisResponse,
 )
 from ...config import AppConfig
@@ -161,6 +173,96 @@ def read_backtest_suites(limit: int = Query(default=10, ge=1, le=200)) -> Backte
 def read_backtest_suite_detail(suite_id: str) -> BacktestSuiteDetailResponse:
     try:
         return load_backtest_suite_detail(suite_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ArtifactError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/portfolio-runs", response_model=PortfolioRunsListResponse)
+def read_portfolio_runs(
+    limit: int = Query(default=10, ge=1, le=200),
+    dataset_id: str | None = Query(default=None, alias="datasetId"),
+) -> PortfolioRunsListResponse:
+    try:
+        return list_portfolio_run_summaries(limit=limit, dataset_id=dataset_id)
+    except (OSError, ValueError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=500, detail="invalid portfolio run artifacts") from exc
+
+
+@router.get("/portfolio-run-comparisons", response_model=PortfolioRunComparisonResponse)
+def read_portfolio_run_comparison(
+    limit: int = Query(default=10, ge=1, le=200),
+    dataset_id: str | None = Query(default=None, alias="datasetId"),
+) -> PortfolioRunComparisonResponse:
+    try:
+        return load_portfolio_run_comparison(limit=limit, dataset_id=dataset_id)
+    except (OSError, ValueError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=500, detail="invalid portfolio run artifacts") from exc
+
+
+@router.post("/portfolio-runs", response_model=PortfolioRunDetailResponse, status_code=status.HTTP_201_CREATED)
+def start_portfolio_run(request: PortfolioRunRequest) -> PortfolioRunDetailResponse:
+    config = AppConfig.from_env()
+    try:
+        strategy_instances = parse_strategy_instance_specs(
+            [
+                {
+                    "strategy_instance_id": item.strategy_instance_id,
+                    "strategy_id": item.strategy_id,
+                    "universe": item.universe,
+                    "strategy_params": item.strategy_params,
+                    "risk_overrides": item.risk_overrides,
+                }
+                for item in request.strategy_instances
+            ],
+            source="api portfolio request",
+        )
+        with CoinbasePublicClient() as client:
+            dataset = HistoricalDatasetBuilder(client=client, base_runs_dir=config.runtime.runs_dir).load_dataset(
+                request.dataset_id
+            )
+        result = run_portfolio_research(
+            base_runs_dir=config.runtime.runs_dir,
+            dataset=dataset,
+            config=config,
+            strategy_instances=strategy_instances,
+            optimizer_config=PortfolioOptimizationConfig(
+                lookback_days=request.lookback_days,
+                max_strategy_weight=request.max_strategy_weight,
+                covariance_shrinkage=request.covariance_shrinkage,
+                ridge_penalty=request.ridge_penalty,
+                turnover_cost_bps=request.turnover_cost_bps,
+            ),
+            starting_capital_usdc=(
+                request.starting_capital_usdc
+                if request.starting_capital_usdc is not None
+                else config.simulation.starting_collateral_usdc
+            ),
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail="failed to write portfolio run artifacts") from exc
+    return load_portfolio_run_detail(result.run_id)
+
+
+@router.get("/portfolio-runs/{run_id}", response_model=PortfolioRunDetailResponse)
+def read_portfolio_run(run_id: str) -> PortfolioRunDetailResponse:
+    try:
+        return load_portfolio_run_detail(run_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ArtifactError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/portfolio-runs/{run_id}/analysis", response_model=PortfolioRunAnalysisResponse)
+def read_portfolio_run_analysis(run_id: str) -> PortfolioRunAnalysisResponse:
+    try:
+        return load_portfolio_run_analysis(run_id)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ArtifactError as exc:
