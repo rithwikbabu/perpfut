@@ -125,10 +125,18 @@ class StubBacktestManager:
         self.active = BacktestJobStatusResponse(
             job_id="job-1",
             status="running",
+            phase="running_suite",
+            phase_message="Completed strategy 1 of 2: momentum",
             pid=321,
             created_at="2026-03-22T00:00:00+00:00",
             started_at="2026-03-22T00:00:00+00:00",
             finished_at=None,
+            total_runs=2,
+            completed_runs=1,
+            progress_pct=0.5,
+            elapsed_seconds=60.0,
+            eta_seconds=60.0,
+            last_heartbeat_at="2026-03-22T00:01:00+00:00",
             suite_id=None,
             dataset_id=None,
             run_ids=[],
@@ -208,6 +216,8 @@ def test_start_backtest_route_returns_job_status(monkeypatch) -> None:
 
     assert response.status_code == 202
     assert response.json()["job_id"] == "job-1"
+    assert response.json()["phase"] == "running_suite"
+    assert response.json()["progress_pct"] == 0.5
     assert manager.started is not None
     assert manager.started.product_ids == ["BTC-PERP-INTX", "ETH-PERP-INTX"]
 

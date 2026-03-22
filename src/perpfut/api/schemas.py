@@ -173,10 +173,18 @@ class BacktestRunRequest(BaseModel):
 class BacktestJobStatusResponse(BaseModel):
     job_id: str
     status: str
+    phase: str | None = None
+    phase_message: str | None = None
     pid: int | None = None
     created_at: str
     started_at: str | None = None
     finished_at: str | None = None
+    total_runs: int | None = None
+    completed_runs: int | None = None
+    progress_pct: float | None = None
+    elapsed_seconds: float | None = None
+    eta_seconds: float | None = None
+    last_heartbeat_at: str | None = None
     suite_id: str | None = None
     dataset_id: str | None = None
     run_ids: list[str] = Field(default_factory=list)

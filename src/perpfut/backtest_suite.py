@@ -6,7 +6,7 @@ import json
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from .analysis import RunAnalysis, analyze_run
 from .backtest_data import HistoricalDataset
@@ -32,6 +32,14 @@ class BacktestSuiteResult:
     items: tuple[BacktestRunSummary, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class BacktestSuiteProgress:
+    phase: str
+    phase_message: str
+    total_runs: int
+    completed_runs: int
+
+
 class BacktestSuiteRunner:
     def __init__(
         self,
@@ -46,7 +54,12 @@ class BacktestSuiteRunner:
         self.config = config
         self.products = tuple(products or dataset.products)
 
-    def run_suite(self, *, strategy_ids: Iterable[str]) -> BacktestSuiteResult:
+    def run_suite(
+        self,
+        *,
+        strategy_ids: Iterable[str],
+        progress_callback: Callable[[BacktestSuiteProgress], None] | None = None,
+    ) -> BacktestSuiteResult:
         suite_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         strategy_id_list = tuple(strategy_ids)
         if not strategy_id_list:
@@ -55,7 +68,17 @@ class BacktestSuiteRunner:
             validate_strategy_id(strategy_id)
 
         items: list[BacktestRunSummary] = []
-        for strategy_id in strategy_id_list:
+        total_runs = len(strategy_id_list)
+        for index, strategy_id in enumerate(strategy_id_list, start=1):
+            if progress_callback is not None:
+                progress_callback(
+                    BacktestSuiteProgress(
+                        phase="running_suite",
+                        phase_message=f"Running strategy {index} of {total_runs}: {strategy_id}",
+                        total_runs=total_runs,
+                        completed_runs=index - 1,
+                    )
+                )
             strategy_config = replace(self.config.strategy, strategy_id=strategy_id)
             runtime_config = replace(
                 self.config.runtime,
@@ -108,6 +131,15 @@ class BacktestSuiteRunner:
                     analysis=analysis,
                 )
             )
+            if progress_callback is not None:
+                progress_callback(
+                    BacktestSuiteProgress(
+                        phase="running_suite",
+                        phase_message=f"Completed strategy {index} of {total_runs}: {strategy_id}",
+                        total_runs=total_runs,
+                        completed_runs=index,
+                    )
+                )
 
         suite_dir = self.base_runs_dir / "backtests" / "suites" / suite_id
         suite_dir.mkdir(parents=True, exist_ok=False)

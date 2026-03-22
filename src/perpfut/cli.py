@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from dataclasses import asdict, replace
 from datetime import datetime
 from pathlib import Path
@@ -12,6 +13,7 @@ from pathlib import Path
 from .analysis import analyze_run
 from .api.server import run_api_server
 from .backtest_data import HistoricalDatasetBuilder
+from .backtest_progress import BacktestProgressReporter, BacktestProgressUpdate
 from .backtest_history import compare_backtest_suite, list_backtest_suites, load_backtest_run
 from .backtest_suite import BacktestSuiteRunner
 from .config import AppConfig
@@ -422,43 +424,91 @@ def _run_backtest_suite(args: argparse.Namespace) -> int:
     _validate_strategy_ids(args.strategy_ids)
     start = _parse_iso8601(args.start, field_name="start")
     end = _parse_iso8601(args.end, field_name="end")
-    with CoinbasePublicClient() as client:
-        builder = HistoricalDatasetBuilder(
-            client=client,
+    progress = BacktestProgressReporter.from_env()
+    total_runs = len(args.strategy_ids)
+    try:
+        if progress is not None:
+            progress.emit(
+                BacktestProgressUpdate(
+                    phase="building_dataset",
+                    phase_message=f"Fetching Coinbase candles for {len(args.product_ids)} products.",
+                    total_runs=total_runs,
+                    completed_runs=0,
+                )
+            )
+        with CoinbasePublicClient() as client:
+            builder = HistoricalDatasetBuilder(
+                client=client,
+                base_runs_dir=config.runtime.runs_dir,
+            )
+            dataset = builder.build_dataset(
+                products=args.product_ids,
+                start=start,
+                end=end,
+                granularity=args.granularity,
+            )
+        suite = BacktestSuiteRunner(
             base_runs_dir=config.runtime.runs_dir,
-        )
-        dataset = builder.build_dataset(
+            dataset=dataset,
+            config=config,
             products=args.product_ids,
-            start=start,
-            end=end,
-            granularity=args.granularity,
+        ).run_suite(
+            strategy_ids=args.strategy_ids,
+            progress_callback=(
+                (lambda snapshot: progress.emit(
+                    BacktestProgressUpdate(
+                        phase=snapshot.phase,
+                        phase_message=snapshot.phase_message,
+                        total_runs=snapshot.total_runs,
+                        completed_runs=snapshot.completed_runs,
+                    )
+                ))
+                if progress is not None
+                else None
+            ),
         )
-    suite = BacktestSuiteRunner(
-        base_runs_dir=config.runtime.runs_dir,
-        dataset=dataset,
-        config=config,
-        products=args.product_ids,
-    ).run_suite(strategy_ids=args.strategy_ids)
-    print(
-        json.dumps(
-            {
-                "suite_id": suite.suite_id,
-                "dataset_id": suite.dataset_id,
-                "run_ids": list(suite.run_ids),
-                "items": [
-                    {
-                        "run_id": item.run_id,
-                        "strategy_id": item.strategy_id,
-                        "analysis": asdict(item.analysis),
-                    }
-                    for item in suite.items
-                ],
-            },
-            indent=2,
-            sort_keys=True,
+        if progress is not None:
+            progress.emit(
+                BacktestProgressUpdate(
+                    phase="finalizing",
+                    phase_message="Writing final suite metadata and response payload.",
+                    total_runs=total_runs,
+                    completed_runs=total_runs,
+                )
+            )
+        print(
+            json.dumps(
+                {
+                    "suite_id": suite.suite_id,
+                    "dataset_id": suite.dataset_id,
+                    "run_ids": list(suite.run_ids),
+                    "items": [
+                        {
+                            "run_id": item.run_id,
+                            "strategy_id": item.strategy_id,
+                            "analysis": asdict(item.analysis),
+                        }
+                        for item in suite.items
+                    ],
+                },
+                indent=2,
+                sort_keys=True,
+            )
         )
-    )
-    return 0
+        return 0
+    except Exception as exc:
+        message = f"backtest run failed: {exc}"
+        if progress is not None:
+            progress.emit(
+                BacktestProgressUpdate(
+                    phase="failed",
+                    phase_message=message,
+                    total_runs=total_runs,
+                    error=message,
+                )
+            )
+        print(message, file=sys.stderr)
+        return 1
 
 
 def _list_backtest_suites(args: argparse.Namespace) -> int:
