@@ -5,6 +5,13 @@ Each run writes immutable artifacts under `runs/<timestamp>_<gitsha>/`.
 ## Files
 
 - `manifest.json`: run metadata
+  - `run_id`
+  - `created_at`
+  - `mode`
+  - `product_id`
+  - `strategy_id`
+  - `git_sha`
+  - `resumed_from_run_id`
 - `config.json`: effective runtime config
 - `events.ndjson`: one high-level event per cycle
 - `fills.ndjson`: simulated or live fills

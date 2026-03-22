@@ -26,6 +26,7 @@ def _env_mode(name: str, default: Mode) -> Mode:
 
 @dataclass(frozen=True, slots=True)
 class StrategyConfig:
+    strategy_id: str = "momentum"
     lookback_candles: int = 20
     signal_scale: float = 35.0
 
@@ -84,6 +85,7 @@ class AppConfig:
                 runs_dir=Path(os.getenv("RUNS_DIR", "runs")),
             ),
             strategy=StrategyConfig(
+                strategy_id=os.getenv("STRATEGY_ID", "momentum"),
                 lookback_candles=_env_int("LOOKBACK_CANDLES", 20),
                 signal_scale=_env_float("SIGNAL_SCALE", 35.0),
             ),

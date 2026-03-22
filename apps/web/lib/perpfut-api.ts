@@ -13,6 +13,7 @@ export type RunsListResponse = {
 
 export type PaperRunRequest = {
   productId: string;
+  strategyId?: string;
   iterations: number;
   intervalSeconds: number;
   startingCollateralUsdc: number;
@@ -24,6 +25,7 @@ export type PaperRunStatusResponse = {
   started_at: string | null;
   run_id: string | null;
   product_id: string | null;
+  strategy_id: string | null;
   iterations: number | null;
   interval_seconds: number | null;
   starting_collateral_usdc: number | null;

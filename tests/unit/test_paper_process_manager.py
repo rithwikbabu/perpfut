@@ -25,6 +25,7 @@ class DummyProcess:
 def _request() -> PaperRunRequest:
     return PaperRunRequest(
         productId="BTC-PERP-INTX",
+        strategyId="momentum",
         iterations=5,
         intervalSeconds=60,
         startingCollateralUsdc=10_000.0,
@@ -41,6 +42,7 @@ def _write_metadata(tmp_path, *, pid: int = 5678) -> None:
                 "started_at": "2026-03-22T00:00:00+00:00",
                 "run_id": None,
                 "product_id": "BTC-PERP-INTX",
+                "strategy_id": "momentum",
                 "iterations": 5,
                 "interval_seconds": 60,
                 "starting_collateral_usdc": 10000.0,
@@ -60,8 +62,10 @@ def test_start_persists_metadata_and_rejects_duplicate(monkeypatch, tmp_path) ->
     status = manager.start(_request())
 
     assert status.active is True
+    assert status.strategy_id == "momentum"
     payload = json.loads((tmp_path / "control" / "active_paper.json").read_text(encoding="utf-8"))
     assert payload["pid"] == 4321
+    assert payload["strategy_id"] == "momentum"
 
     with pytest.raises(PaperRunConflictError):
         manager.start(_request())
@@ -107,6 +111,30 @@ def test_start_raises_if_process_exits_immediately(monkeypatch, tmp_path) -> Non
 
     with pytest.raises(PaperRunStartError):
         manager.start(_request())
+
+
+def test_start_rejects_unknown_strategy_before_spawning(monkeypatch, tmp_path) -> None:
+    manager = PaperProcessManager(tmp_path)
+    started = {"called": False}
+
+    def fake_popen(*args, **kwargs):
+        started["called"] = True
+        return DummyProcess(7654)
+
+    monkeypatch.setattr("subprocess.Popen", fake_popen)
+
+    with pytest.raises(PaperRunStartError, match="unknown strategy_id"):
+        manager.start(
+            PaperRunRequest(
+                productId="BTC-PERP-INTX",
+                strategyId="unknown",
+                iterations=5,
+                intervalSeconds=60,
+                startingCollateralUsdc=10_000.0,
+            )
+        )
+
+    assert started["called"] is False
 
 
 def test_status_raises_for_corrupted_metadata(monkeypatch, tmp_path) -> None:

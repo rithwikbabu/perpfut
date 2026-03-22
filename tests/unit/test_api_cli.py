@@ -38,6 +38,29 @@ def test_analyze_parser_defaults() -> None:
     assert args.mode == "paper"
 
 
+def test_paper_main_exits_cleanly_for_unknown_strategy(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("STRATEGY_ID", "unknown")
+
+    try:
+        main(
+            [
+                "paper",
+                "--runs-dir",
+                str(tmp_path),
+                "--iterations",
+                "1",
+                "--interval-seconds",
+                "0",
+            ]
+        )
+    except SystemExit as exc:
+        assert str(exc) == "unknown strategy_id 'unknown'; available strategies: momentum"
+    else:
+        raise AssertionError("expected SystemExit")
+
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_analyze_main_prints_run_analysis(monkeypatch, tmp_path, capsys) -> None:
     run_id = "20260322T020000000000Z_beta"
     run_dir = tmp_path / run_id

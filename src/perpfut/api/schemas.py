@@ -128,6 +128,7 @@ class DashboardOverviewResponse(BaseModel):
 
 class PaperRunRequest(BaseModel):
     product_id: str = Field(alias="productId")
+    strategy_id: str = Field(alias="strategyId", default="momentum")
     iterations: int = Field(ge=1)
     interval_seconds: int = Field(alias="intervalSeconds", ge=0)
     starting_collateral_usdc: float = Field(alias="startingCollateralUsdc", gt=0)
@@ -143,6 +144,7 @@ class PaperRunStatusResponse(BaseModel):
     started_at: str | None = None
     run_id: str | None = None
     product_id: str | None = None
+    strategy_id: str | None = None
     iterations: int | None = None
     interval_seconds: int | None = None
     starting_collateral_usdc: float | None = None

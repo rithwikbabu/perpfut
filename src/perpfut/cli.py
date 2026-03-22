@@ -17,6 +17,7 @@ from .exchange_coinbase import CoinbasePrivateClient, CoinbasePublicClient
 from .live_execution import LiveExecutor
 from .preflight import run_preflight
 from .run_history import find_latest_run, load_run_manifest, load_run_state, summarize_runs
+from .strategy_registry import validate_strategy_id
 from .telemetry import ArtifactStore, configure_logging
 
 
@@ -114,6 +115,7 @@ def _run_paper(args: argparse.Namespace) -> int:
         interval_seconds=args.interval_seconds,
         runs_dir=args.runs_dir,
     )
+    _validate_strategy_config(config)
     artifact_store = ArtifactStore.create(config.runtime.runs_dir)
     artifact_store.write_metadata(config)
 
@@ -210,6 +212,7 @@ def _run_preflight(args: argparse.Namespace) -> int:
         product_id=args.product_id,
         runs_dir=args.runs_dir,
     )
+    _validate_strategy_config(config)
     portfolio_uuid = args.portfolio_uuid or config.coinbase.intx_portfolio_uuid
 
     with CoinbasePublicClient() as public_client:
@@ -250,6 +253,7 @@ def _run_live(args: argparse.Namespace) -> int:
         interval_seconds=args.interval_seconds,
         runs_dir=args.runs_dir,
     )
+    _validate_strategy_config(config)
     portfolio_uuid = args.portfolio_uuid or config.coinbase.intx_portfolio_uuid
     if not portfolio_uuid:
         raise SystemExit("set COINBASE_INTX_PORTFOLIO_UUID or pass --portfolio-uuid")
@@ -291,3 +295,10 @@ def _run_live(args: argparse.Namespace) -> int:
 def _run_api(args: argparse.Namespace) -> int:
     run_api_server(host=args.host, port=args.port)
     return 0
+
+
+def _validate_strategy_config(config: AppConfig) -> None:
+    try:
+        validate_strategy_id(config.strategy.strategy_id)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc

@@ -46,11 +46,14 @@ Start requests accept:
 ```json
 {
   "productId": "BTC-PERP-INTX",
+  "strategyId": "momentum",
   "iterations": 1440,
   "intervalSeconds": 60,
   "startingCollateralUsdc": 10000
 }
 ```
+
+`strategyId` currently defaults to `momentum` when omitted.
 
 The service allows only one active paper run at a time.
 
