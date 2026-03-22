@@ -230,3 +230,38 @@ def test_backtest_show_missing_run_raises_system_exit(tmp_path) -> None:
 def test_backtest_compare_missing_suite_raises_system_exit(tmp_path) -> None:
     with pytest.raises(SystemExit, match="backtest suite not found: missing"):
         main(["backtest", "compare", "--runs-dir", str(tmp_path), "--suite-id", "missing"])
+
+
+def test_backtest_list_skips_malformed_suite_manifests(tmp_path, capsys) -> None:
+    valid_suite_dir = tmp_path / "backtests" / "suites" / "suite-valid"
+    valid_suite_dir.mkdir(parents=True)
+    (valid_suite_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "suite_id": "suite-valid",
+                "dataset_id": "dataset-1",
+                "run_ids": ["run-1"],
+                "strategies": ["momentum"],
+                "products": ["BTC-PERP-INTX"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    malformed_suite_dir = tmp_path / "backtests" / "suites" / "suite-bad"
+    malformed_suite_dir.mkdir(parents=True)
+    (malformed_suite_dir / "manifest.json").write_text("{not-json", encoding="utf-8")
+
+    exit_code = main(["backtest", "list", "--runs-dir", str(tmp_path)])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == [
+        {
+            "created_at": None,
+            "dataset_id": "dataset-1",
+            "products": ["BTC-PERP-INTX"],
+            "run_ids": ["run-1"],
+            "strategies": ["momentum"],
+            "suite_id": "suite-valid",
+        }
+    ]

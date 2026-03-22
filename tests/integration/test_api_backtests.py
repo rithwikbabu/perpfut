@@ -175,6 +175,20 @@ def test_backtests_list_and_detail_endpoints(monkeypatch, tmp_path) -> None:
     assert suite_detail_response.json()["items"][0]["rank"] == 1
 
 
+def test_backtest_endpoints_return_empty_state_when_no_artifacts_exist(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("RUNS_DIR", str(tmp_path))
+    monkeypatch.setattr("perpfut.api.routers.backtests.get_backtest_job_manager", lambda: StubBacktestManager())
+    client = TestClient(create_app())
+
+    backtests_response = client.get("/api/backtests")
+    suites_response = client.get("/api/backtest-suites")
+
+    assert backtests_response.status_code == 200
+    assert backtests_response.json() == {"items": [], "count": 0, "active_job": None}
+    assert suites_response.status_code == 200
+    assert suites_response.json() == {"items": [], "count": 0, "active_job": None}
+
+
 def test_start_backtest_route_returns_job_status(monkeypatch) -> None:
     manager = StubBacktestManager()
     monkeypatch.setattr("perpfut.api.routers.backtests.get_backtest_job_manager", lambda: manager)
@@ -264,3 +278,27 @@ def test_backtest_suite_detail_does_not_depend_on_paginated_suite_listing(monkey
 
     assert response.status_code == 200
     assert response.json()["suite_id"] == "suite-1"
+
+
+def test_backtest_run_detail_maps_invalid_analysis_payloads_to_500(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("RUNS_DIR", str(tmp_path))
+    monkeypatch.setattr("perpfut.api.routers.backtests.get_backtest_job_manager", lambda: StubBacktestManager())
+    run_dir = tmp_path / "backtests" / "runs" / "run-bad"
+    run_dir.mkdir(parents=True)
+    _write_json(
+        run_dir / "manifest.json",
+        {
+            "run_id": "run-bad",
+            "mode": "backtest",
+            "suite_id": "suite-1",
+            "dataset_id": "dataset-1",
+        },
+    )
+    _write_json(run_dir / "state.json", {"run_id": "run-bad"})
+    _write_json(run_dir / "analysis.json", {"run_id": "run-bad", "fill_count": "bad"})
+    client = TestClient(create_app())
+
+    response = client.get("/api/backtests/run-bad")
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "invalid backtest analysis payload for: run-bad"
