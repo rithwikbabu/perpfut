@@ -7,6 +7,7 @@ import json
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 from typing import Protocol
 
 from .domain import Candle, MarketSnapshot
@@ -17,6 +18,7 @@ GRANULARITY_SECONDS = {
 DATASET_SOURCE = "coinbase"
 DATASET_VERSION = "1"
 REGISTRY_FILENAME = "registry.json"
+CACHE_DIRNAME = ".cache"
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +33,7 @@ class HistoricalDataset:
     fingerprint: str = ""
     source: str = DATASET_SOURCE
     version: str = DATASET_VERSION
+    dataset_dir: Path | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,22 +113,19 @@ class HistoricalDatasetBuilder:
 
         created_at = datetime.now(timezone.utc)
         dataset_id = created_at.strftime("%Y%m%dT%H%M%S%fZ")
-        candles_by_product: dict[str, tuple[Candle, ...]] = {}
-        for product_id in products:
-            candles = tuple(
-                self._client.fetch_historical_candles(
-                    product_id,
-                    start=start,
-                    end=end,
-                    granularity=granularity,
-                )
-            )
+        candles_by_product = self._fetch_products(
+            products=products,
+            start=start,
+            end=end,
+            granularity=granularity,
+        )
+        for product_id, candles in candles_by_product.items():
             if not candles:
                 raise ValueError(
                     f"historical dataset contains no candles for product '{product_id}' "
                     f"between {start.isoformat()} and {end.isoformat()}"
                 )
-            candles_by_product[product_id] = candles
+        dataset_dir = self._datasets_dir / dataset_id
 
         dataset = HistoricalDataset(
             dataset_id=dataset_id,
@@ -138,6 +138,7 @@ class HistoricalDatasetBuilder:
             end=end,
             granularity=granularity,
             candles_by_product=candles_by_product,
+            dataset_dir=dataset_dir,
         )
         self._persist_dataset(dataset)
         return dataset
@@ -162,10 +163,11 @@ class HistoricalDatasetBuilder:
             end=datetime.fromisoformat(manifest["end"]),
             granularity=manifest["granularity"],
             candles_by_product=candles_by_product,
+            dataset_dir=dataset_dir,
         )
 
     def _persist_dataset(self, dataset: HistoricalDataset) -> None:
-        dataset_dir = self._datasets_dir / dataset.dataset_id
+        dataset_dir = dataset.dataset_dir or self._datasets_dir / dataset.dataset_id
         dataset_dir.mkdir(parents=True, exist_ok=False)
         manifest = {
             "dataset_id": dataset.dataset_id,
@@ -199,6 +201,30 @@ class HistoricalDatasetBuilder:
         registry[dataset.fingerprint] = dataset.dataset_id
         self._write_registry(registry)
 
+    def _fetch_products(
+        self,
+        *,
+        products: list[str],
+        start: datetime,
+        end: datetime,
+        granularity: str,
+    ) -> dict[str, tuple[Candle, ...]]:
+        with ThreadPoolExecutor(max_workers=min(len(products), 8)) as executor:
+            futures = {
+                product_id: executor.submit(
+                    self._client.fetch_historical_candles,
+                    product_id,
+                    start=start,
+                    end=end,
+                    granularity=granularity,
+                )
+                for product_id in products
+            }
+            return {
+                product_id: tuple(future.result())
+                for product_id, future in futures.items()
+            }
+
     def _load_registry(self) -> dict[str, str]:
         if not self._registry_path.exists():
             return {}
@@ -231,26 +257,19 @@ def synthesize_aligned_snapshots(
             candle.start: index for index, candle in enumerate(candles)
         }
 
-    common_timestamps: set[datetime] | None = None
-    for indexes in timestamp_indexes.values():
-        timestamps = set(indexes.keys())
-        common_timestamps = timestamps if common_timestamps is None else common_timestamps & timestamps
-    if not common_timestamps:
+    selected_windows = _load_or_build_alignment_windows(
+        dataset,
+        lookback_candles=lookback_candles,
+        timestamp_indexes=timestamp_indexes,
+    )
+    if not selected_windows:
         return ()
 
     granularity_seconds = GRANULARITY_SECONDS.get(dataset.granularity)
     if granularity_seconds is None:
         raise ValueError(f"unsupported dataset granularity: {dataset.granularity}")
-    expected_gap_seconds = granularity_seconds
-    ordered_common_timestamps = sorted(common_timestamps)
     frames: list[AlignedSnapshotFrame] = []
-    for end_index in range(lookback_candles - 1, len(ordered_common_timestamps)):
-        selected_timestamps = ordered_common_timestamps[end_index + 1 - lookback_candles : end_index + 1]
-        if any(
-            (next_timestamp - current_timestamp).total_seconds() != expected_gap_seconds
-            for current_timestamp, next_timestamp in zip(selected_timestamps, selected_timestamps[1:])
-        ):
-            continue
+    for selected_timestamps in selected_windows:
         timestamp = selected_timestamps[-1]
         snapshots: dict[str, MarketSnapshot] = {}
         for product_id, candles in dataset.candles_by_product.items():
@@ -343,6 +362,79 @@ def compute_dataset_fingerprint(
         json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
     ).hexdigest()
     return digest
+
+
+def _load_or_build_alignment_windows(
+    dataset: HistoricalDataset,
+    *,
+    lookback_candles: int,
+    timestamp_indexes: dict[str, dict[datetime, int]],
+) -> tuple[tuple[datetime, ...], ...]:
+    cache_path = _alignment_cache_path(dataset, lookback_candles=lookback_candles)
+    if cache_path is not None and cache_path.exists():
+        try:
+            payload = json.loads(cache_path.read_text(encoding="utf-8"))
+            return tuple(
+                tuple(datetime.fromisoformat(item) for item in window)
+                for window in payload.get("windows", [])
+            )
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            cache_path.unlink(missing_ok=True)
+
+    common_timestamps: set[datetime] | None = None
+    for indexes in timestamp_indexes.values():
+        timestamps = set(indexes.keys())
+        common_timestamps = timestamps if common_timestamps is None else common_timestamps & timestamps
+    if not common_timestamps:
+        windows: tuple[tuple[datetime, ...], ...] = ()
+    else:
+        granularity_seconds = GRANULARITY_SECONDS.get(dataset.granularity)
+        if granularity_seconds is None:
+            raise ValueError(f"unsupported dataset granularity: {dataset.granularity}")
+        expected_gap_seconds = granularity_seconds
+        ordered_common_timestamps = sorted(common_timestamps)
+        collected: list[tuple[datetime, ...]] = []
+        for end_index in range(lookback_candles - 1, len(ordered_common_timestamps)):
+            selected_timestamps = ordered_common_timestamps[end_index + 1 - lookback_candles : end_index + 1]
+            if any(
+                (next_timestamp - current_timestamp).total_seconds() != expected_gap_seconds
+                for current_timestamp, next_timestamp in zip(selected_timestamps, selected_timestamps[1:])
+            ):
+                continue
+            collected.append(tuple(selected_timestamps))
+        windows = tuple(collected)
+
+    if cache_path is not None:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(
+            json.dumps(
+                {
+                    "lookback_candles": lookback_candles,
+                    "windows": [
+                        [timestamp.isoformat() for timestamp in window]
+                        for window in windows
+                    ],
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+    return windows
+
+
+def _alignment_cache_path(dataset: HistoricalDataset, *, lookback_candles: int) -> Path | None:
+    if dataset.dataset_dir is None:
+        return None
+    products_hash = hashlib.sha256(
+        json.dumps(sorted(dataset.products), separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:12]
+    return (
+        dataset.dataset_dir
+        / CACHE_DIRNAME
+        / f"aligned_windows_lookback_{lookback_candles}_{products_hash}.json"
+    )
 
 
 def list_dataset_summaries(base_runs_dir: Path, *, limit: int = 10) -> list[HistoricalDatasetSummary]:
