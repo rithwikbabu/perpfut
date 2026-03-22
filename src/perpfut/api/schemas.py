@@ -323,3 +323,148 @@ class BacktestSuiteDetailResponse(BaseModel):
     run_ids: list[str] = Field(default_factory=list)
     ranking_policy: str
     items: list[BacktestSuiteComparisonItemResponse]
+
+
+class StrategyInstanceRequest(BaseModel):
+    strategy_instance_id: str = Field(alias="strategyInstanceId")
+    strategy_id: str = Field(alias="strategyId")
+    universe: list[str]
+    strategy_params: dict[str, Any] = Field(alias="strategyParams", default_factory=dict)
+    risk_overrides: dict[str, float] = Field(alias="riskOverrides", default_factory=dict)
+
+    model_config = {
+        "populate_by_name": True,
+    }
+
+
+class PortfolioRunRequest(BaseModel):
+    dataset_id: str = Field(alias="datasetId")
+    strategy_instances: list[StrategyInstanceRequest] = Field(alias="strategyInstances", min_length=1)
+    starting_capital_usdc: float | None = Field(alias="startingCapitalUsdc", default=None, gt=0)
+    lookback_days: int = Field(alias="lookbackDays", default=60, ge=1)
+    max_strategy_weight: float = Field(alias="maxStrategyWeight", default=0.40, gt=0)
+    covariance_shrinkage: float = Field(alias="covarianceShrinkage", default=0.20, ge=0, le=1)
+    ridge_penalty: float = Field(alias="ridgePenalty", default=1e-4, ge=0)
+    turnover_cost_bps: float = Field(alias="turnoverCostBps", default=5.0, ge=0)
+
+    model_config = {
+        "populate_by_name": True,
+    }
+
+
+class PortfolioRunSummaryResponse(BaseModel):
+    run_id: str
+    created_at: str | None = None
+    dataset_id: str | None = None
+    date_range_start: str | None = None
+    date_range_end: str | None = None
+    sharpe_ratio: float | None = None
+    total_pnl_usdc: float
+    total_return_pct: float
+    max_drawdown_usdc: float
+    max_drawdown_pct: float
+    total_turnover_usdc: float
+    avg_gross_weight: float
+    max_gross_weight: float
+    strategy_instance_ids: list[str] = Field(default_factory=list)
+
+
+class PortfolioRunsListResponse(BaseModel):
+    items: list[PortfolioRunSummaryResponse]
+    count: int
+
+
+class PortfolioContributionItemResponse(BaseModel):
+    strategy_instance_id: str
+    strategy_id: str
+    sleeve_run_id: str
+    total_gross_pnl_usdc: float
+    daily_gross_pnl_series: list[AnalysisSeriesPointResponse]
+
+
+class PortfolioContributionsResponse(BaseModel):
+    items: list[PortfolioContributionItemResponse]
+    transaction_cost_total_usdc: float
+    transaction_cost_series_usdc: list[AnalysisSeriesPointResponse]
+
+
+class PortfolioWeightSnapshotResponse(BaseModel):
+    date: str
+    weights: dict[str, float]
+    cash_weight: float
+    turnover: float
+    gross_weight: float
+
+
+class PortfolioDiagnosticResponse(BaseModel):
+    date: str
+    expected_returns: dict[str, float]
+    covariance_matrix: dict[str, dict[str, float]]
+    constraint_status: str
+
+
+class PortfolioRunAnalysisResponse(BaseModel):
+    run_id: str
+    dataset_id: str
+    dataset_fingerprint: str
+    dataset_source: str
+    dataset_version: str
+    date_range_start: str
+    date_range_end: str
+    created_at: str
+    starting_capital_usdc: float
+    ending_equity_usdc: float
+    total_pnl_usdc: float
+    total_return_pct: float
+    sharpe_ratio: float | None = None
+    max_drawdown_usdc: float
+    max_drawdown_pct: float
+    total_turnover_usdc: float
+    transaction_cost_total_usdc: float
+    avg_gross_weight: float
+    max_gross_weight: float
+    strategy_instance_ids: list[str] = Field(default_factory=list)
+    sleeve_run_ids: list[str] = Field(default_factory=list)
+    equity_series: list[AnalysisSeriesPointResponse]
+    drawdown_series: list[AnalysisSeriesPointResponse]
+    gross_return_series: list[AnalysisSeriesPointResponse]
+    net_return_series: list[AnalysisSeriesPointResponse]
+    turnover_series_usdc: list[AnalysisSeriesPointResponse]
+    transaction_cost_series_usdc: list[AnalysisSeriesPointResponse]
+    gross_weight_series: list[AnalysisSeriesPointResponse]
+    contribution_totals_usdc: dict[str, float]
+
+
+class PortfolioRunDetailResponse(BaseModel):
+    run_id: str
+    manifest: dict[str, Any]
+    config: dict[str, Any]
+    state: dict[str, Any]
+    analysis: PortfolioRunAnalysisResponse
+    weights: list[PortfolioWeightSnapshotResponse]
+    diagnostics: list[PortfolioDiagnosticResponse]
+    contributions: PortfolioContributionsResponse
+
+
+class PortfolioRunComparisonItemResponse(BaseModel):
+    rank: int
+    run_id: str
+    created_at: str | None = None
+    dataset_id: str | None = None
+    date_range_start: str | None = None
+    date_range_end: str | None = None
+    sharpe_ratio: float | None = None
+    total_pnl_usdc: float
+    total_return_pct: float
+    max_drawdown_usdc: float
+    max_drawdown_pct: float
+    total_turnover_usdc: float
+    avg_gross_weight: float
+    max_gross_weight: float
+    strategy_instance_ids: list[str] = Field(default_factory=list)
+
+
+class PortfolioRunComparisonResponse(BaseModel):
+    dataset_id: str | None = None
+    ranking_policy: str
+    items: list[PortfolioRunComparisonItemResponse]

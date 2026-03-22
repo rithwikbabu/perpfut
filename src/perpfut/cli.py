@@ -27,8 +27,12 @@ from .experiment import run_experiment
 from .experiment import compare_experiments
 from .exchange_coinbase import CoinbasePrivateClient, CoinbasePublicClient
 from .live_execution import LiveExecutor
+from .portfolio_history import compare_portfolio_runs, list_portfolio_runs, load_portfolio_run
+from .portfolio_optimizer import PortfolioOptimizationConfig
+from .portfolio_runs import run_portfolio_research
 from .preflight import run_preflight
 from .run_history import find_latest_run, load_run_manifest, load_run_state, summarize_runs
+from .strategy_instances import load_strategy_instance_specs
 from .strategy_registry import validate_strategy_id
 from .telemetry import ArtifactStore, configure_logging
 
@@ -157,6 +161,37 @@ def build_parser() -> argparse.ArgumentParser:
     backtest_compare_parser.add_argument("--suite-id", required=True)
     backtest_compare_parser.add_argument("--runs-dir", type=Path, default=None)
 
+    portfolio_parser = subparsers.add_parser("portfolio", help="run and inspect optimizer portfolio research")
+    portfolio_subparsers = portfolio_parser.add_subparsers(dest="portfolio_command")
+
+    portfolio_run_parser = portfolio_subparsers.add_parser("run", help="run an optimizer portfolio research job")
+    portfolio_run_parser.add_argument("--dataset-id", required=True)
+    portfolio_run_parser.add_argument("--strategy-specs", type=Path, required=True)
+    portfolio_run_parser.add_argument("--runs-dir", type=Path, default=None)
+    portfolio_run_parser.add_argument("--starting-capital-usdc", type=float, default=None)
+    portfolio_run_parser.add_argument("--lookback-days", type=int, default=None)
+    portfolio_run_parser.add_argument("--max-strategy-weight", type=float, default=None)
+    portfolio_run_parser.add_argument("--covariance-shrinkage", type=float, default=None)
+    portfolio_run_parser.add_argument("--ridge-penalty", type=float, default=None)
+    portfolio_run_parser.add_argument("--turnover-cost-bps", type=float, default=None)
+
+    portfolio_list_parser = portfolio_subparsers.add_parser("list", help="list optimizer portfolio runs")
+    portfolio_list_parser.add_argument("--limit", type=int, default=10)
+    portfolio_list_parser.add_argument("--dataset-id", default=None)
+    portfolio_list_parser.add_argument("--runs-dir", type=Path, default=None)
+
+    portfolio_show_parser = portfolio_subparsers.add_parser("show", help="show one optimizer portfolio run")
+    portfolio_show_parser.add_argument("--run-id", required=True)
+    portfolio_show_parser.add_argument("--runs-dir", type=Path, default=None)
+
+    portfolio_compare_parser = portfolio_subparsers.add_parser(
+        "compare",
+        help="compare ranked optimizer portfolio runs",
+    )
+    portfolio_compare_parser.add_argument("--limit", type=int, default=10)
+    portfolio_compare_parser.add_argument("--dataset-id", default=None)
+    portfolio_compare_parser.add_argument("--runs-dir", type=Path, default=None)
+
     return parser
 
 
@@ -189,6 +224,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_dataset(args)
     if args.command == "backtest":
         return _run_backtest(args)
+    if args.command == "portfolio":
+        return _run_portfolio(args)
     if args.command == "live":
         return _run_live(args)
 
@@ -454,6 +491,18 @@ def _run_backtest(args: argparse.Namespace) -> int:
     raise SystemExit("choose one of: run, list, show, compare")
 
 
+def _run_portfolio(args: argparse.Namespace) -> int:
+    if args.portfolio_command == "run":
+        return _run_portfolio_command(args)
+    if args.portfolio_command == "list":
+        return _list_portfolio_runs_command(args)
+    if args.portfolio_command == "show":
+        return _show_portfolio_run_command(args)
+    if args.portfolio_command == "compare":
+        return _compare_portfolio_runs_command(args)
+    raise SystemExit("choose one of: run, list, show, compare")
+
+
 def _run_backtest_suite(args: argparse.Namespace) -> int:
     config = _build_backtest_config(args)
     _validate_strategy_ids(args.strategy_ids)
@@ -601,6 +650,110 @@ def _compare_backtest_suite(args: argparse.Namespace) -> int:
         raise SystemExit(str(exc)) from exc
     except (OSError, json.JSONDecodeError, ValueError) as exc:
         raise SystemExit(f"invalid backtest suite artifacts for: {args.suite_id}") from exc
+    print(json.dumps(asdict(payload), indent=2, sort_keys=True))
+    return 0
+
+
+def _run_portfolio_command(args: argparse.Namespace) -> int:
+    config = AppConfig.from_env().with_overrides(runs_dir=args.runs_dir)
+    try:
+        strategy_instances = load_strategy_instance_specs(args.strategy_specs)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise SystemExit(str(exc)) from exc
+
+    optimizer_config = PortfolioOptimizationConfig(
+        lookback_days=(
+            args.lookback_days
+            if args.lookback_days is not None
+            else PortfolioOptimizationConfig.lookback_days
+        ),
+        max_strategy_weight=(
+            args.max_strategy_weight
+            if args.max_strategy_weight is not None
+            else PortfolioOptimizationConfig.max_strategy_weight
+        ),
+        covariance_shrinkage=(
+            args.covariance_shrinkage
+            if args.covariance_shrinkage is not None
+            else PortfolioOptimizationConfig.covariance_shrinkage
+        ),
+        ridge_penalty=(
+            args.ridge_penalty
+            if args.ridge_penalty is not None
+            else PortfolioOptimizationConfig.ridge_penalty
+        ),
+        turnover_cost_bps=(
+            args.turnover_cost_bps
+            if args.turnover_cost_bps is not None
+            else PortfolioOptimizationConfig.turnover_cost_bps
+        ),
+    )
+    starting_capital_usdc = (
+        args.starting_capital_usdc
+        if args.starting_capital_usdc is not None
+        else config.simulation.starting_collateral_usdc
+    )
+    try:
+        with CoinbasePublicClient() as client:
+            dataset = HistoricalDatasetBuilder(
+                client=client,
+                base_runs_dir=config.runtime.runs_dir,
+            ).load_dataset(args.dataset_id)
+        result = run_portfolio_research(
+            base_runs_dir=config.runtime.runs_dir,
+            dataset=dataset,
+            config=config,
+            strategy_instances=strategy_instances,
+            optimizer_config=optimizer_config,
+            starting_capital_usdc=starting_capital_usdc,
+        )
+    except FileNotFoundError as exc:
+        raise SystemExit(str(exc)) from exc
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise SystemExit(str(exc)) from exc
+    print(
+        json.dumps(
+            {
+                "run_id": result.run_id,
+                "dataset_id": result.analysis.dataset_id,
+                "sleeve_run_ids": list(result.sleeve_run_ids),
+                "analysis": asdict(result.analysis),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+def _list_portfolio_runs_command(args: argparse.Namespace) -> int:
+    runs_dir = args.runs_dir or AppConfig.from_env().runtime.runs_dir
+    try:
+        payload = list_portfolio_runs(runs_dir, limit=args.limit, dataset_id=args.dataset_id)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise SystemExit(f"invalid portfolio run artifacts in: {runs_dir}") from exc
+    print(json.dumps([asdict(item) for item in payload], indent=2, sort_keys=True))
+    return 0
+
+
+def _show_portfolio_run_command(args: argparse.Namespace) -> int:
+    runs_dir = args.runs_dir or AppConfig.from_env().runtime.runs_dir
+    try:
+        payload = load_portfolio_run(runs_dir, run_id=args.run_id)
+    except FileNotFoundError as exc:
+        raise SystemExit(str(exc)) from exc
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise SystemExit(f"invalid portfolio run artifacts for: {args.run_id}") from exc
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0
+
+
+def _compare_portfolio_runs_command(args: argparse.Namespace) -> int:
+    runs_dir = args.runs_dir or AppConfig.from_env().runtime.runs_dir
+    try:
+        payload = compare_portfolio_runs(runs_dir, limit=args.limit, dataset_id=args.dataset_id)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise SystemExit(f"invalid portfolio run artifacts in: {runs_dir}") from exc
     print(json.dumps(asdict(payload), indent=2, sort_keys=True))
     return 0
 
