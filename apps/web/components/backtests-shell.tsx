@@ -27,6 +27,7 @@ import {
 import {
   ApiError,
   fetchJson,
+  launchSleeves,
   startBacktest,
   type BacktestJobStatusResponse,
   type BacktestRunRequest,
@@ -37,6 +38,11 @@ import {
   type PortfolioRunComparisonResponse,
   type PortfolioRunDetailResponse,
   type PortfolioRunsListResponse,
+  type SleeveLaunchRequest,
+  type StrategyCatalogItem,
+  type StrategyCatalogResponse,
+  type StrategyCatalogField,
+  type StrategyInstanceRequest,
   type StrategySleeveComparisonResponse,
   type StrategySleeveDetailResponse,
   type StrategySleevesListResponse,
@@ -65,6 +71,17 @@ type BacktestFormState = {
   slippageBps: string;
 };
 
+type StrategyBuilderDraft = {
+  draftId: string;
+  strategyInstanceId: string;
+  strategyId: string;
+  universe: string[];
+  strategyParams: Record<string, string>;
+  riskOverrides: Record<string, string>;
+};
+
+let nextStrategyDraftId = 1;
+
 function buildDefaultWindow() {
   const end = new Date();
   const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
@@ -88,6 +105,31 @@ function buildDefaultForm(): BacktestFormState {
     maxGrossPosition: "1.0",
     maxLeverage: "2.0",
     slippageBps: "3",
+  };
+}
+
+function nextDraftId() {
+  const current = nextStrategyDraftId;
+  nextStrategyDraftId += 1;
+  return `draft-${current}`;
+}
+
+function formatFieldDefault(value: number | null): string {
+  return value === null ? "" : `${value}`;
+}
+
+function createBuilderDraft(catalogItem: StrategyCatalogItem): StrategyBuilderDraft {
+  return {
+    draftId: nextDraftId(),
+    strategyInstanceId: `${catalogItem.strategyId}-${nextStrategyDraftId}`,
+    strategyId: catalogItem.strategyId,
+    universe: [],
+    strategyParams: Object.fromEntries(
+      catalogItem.strategyParams.map((field) => [field.key, formatFieldDefault(field.defaultValue)]),
+    ),
+    riskOverrides: Object.fromEntries(
+      catalogItem.riskOverrides.map((field) => [field.key, formatFieldDefault(field.defaultValue)]),
+    ),
   };
 }
 
@@ -291,10 +333,146 @@ function MultiSelectGrid({
   );
 }
 
+function StrategySelectField({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: StrategyCatalogItem[];
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="block">
+      <span className="mono text-[10px] uppercase tracking-[0.24em] text-[var(--muted)]">{label}</span>
+      <select
+        className="mt-3 w-full border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-3 text-sm text-[var(--text)] outline-none transition focus:border-[var(--border-strong)]"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        {options.map((option) => (
+          <option key={option.strategyId} value={option.strategyId}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function parseFieldNumber(field: StrategyCatalogField, value: string): number | null | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return field.required ? null : undefined;
+  }
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  if (field.inputKind === "integer" && !Number.isInteger(parsed)) {
+    return null;
+  }
+  if (field.minValue !== null && parsed < field.minValue) {
+    return null;
+  }
+  if (field.maxValue !== null && parsed > field.maxValue) {
+    return null;
+  }
+  return parsed;
+}
+
+function validateStrategyBuilderDrafts(args: {
+  drafts: StrategyBuilderDraft[];
+  selectedDataset: DatasetsListResponse["items"][number] | null;
+  strategyCatalog: StrategyCatalogResponse | undefined;
+}): string[] {
+  const { drafts, selectedDataset, strategyCatalog } = args;
+  if (!selectedDataset) {
+    return ["Select a cached dataset before launching sleeves."];
+  }
+  if (!strategyCatalog || strategyCatalog.items.length === 0) {
+    return ["Strategy catalog is unavailable."];
+  }
+  if (drafts.length === 0) {
+    return ["Add at least one strategy sleeve."];
+  }
+
+  const errors: string[] = [];
+  const seenIds = new Set<string>();
+  const catalogById = new Map(strategyCatalog.items.map((item) => [item.strategyId, item]));
+  for (const draft of drafts) {
+    const trimmedId = draft.strategyInstanceId.trim();
+    if (!trimmedId) {
+      errors.push("Every sleeve needs a strategy instance ID.");
+    } else if (seenIds.has(trimmedId)) {
+      errors.push(`Duplicate strategy instance ID '${trimmedId}'.`);
+    } else {
+      seenIds.add(trimmedId);
+    }
+    const strategy = catalogById.get(draft.strategyId);
+    if (!strategy) {
+      errors.push(`Unknown strategy '${draft.strategyId}'.`);
+      continue;
+    }
+    if (draft.universe.length === 0) {
+      errors.push(`Select at least one asset for '${trimmedId || draft.strategyId}'.`);
+    }
+    for (const productId of draft.universe) {
+      if (!selectedDataset.products.includes(productId)) {
+        errors.push(`'${productId}' is not available in dataset '${selectedDataset.datasetId}'.`);
+      }
+    }
+    for (const field of strategy.strategyParams) {
+      if (parseFieldNumber(field, draft.strategyParams[field.key] ?? "") === null) {
+        errors.push(`Invalid ${field.label.toLowerCase()} for '${trimmedId || draft.strategyId}'.`);
+      }
+    }
+    for (const field of strategy.riskOverrides) {
+      if (parseFieldNumber(field, draft.riskOverrides[field.key] ?? "") === null) {
+        errors.push(`Invalid ${field.label.toLowerCase()} for '${trimmedId || draft.strategyId}'.`);
+      }
+    }
+  }
+  return Array.from(new Set(errors));
+}
+
+function buildStrategyInstanceRequest(
+  draft: StrategyBuilderDraft,
+  catalogItem: StrategyCatalogItem,
+): StrategyInstanceRequest {
+  const strategyParams: Record<string, number> = {};
+  const riskOverrides: Record<string, number> = {};
+
+  for (const field of catalogItem.strategyParams) {
+    const parsed = parseFieldNumber(field, draft.strategyParams[field.key] ?? "");
+    if (parsed !== undefined && parsed !== null) {
+      strategyParams[field.key] = parsed;
+    }
+  }
+  for (const field of catalogItem.riskOverrides) {
+    const parsed = parseFieldNumber(field, draft.riskOverrides[field.key] ?? "");
+    if (parsed !== undefined && parsed !== null) {
+      riskOverrides[field.key] = parsed;
+    }
+  }
+
+  return {
+    strategyInstanceId: draft.strategyInstanceId.trim(),
+    strategyId: draft.strategyId,
+    universe: draft.universe,
+    strategyParams,
+    riskOverrides,
+  };
+}
+
 export function BacktestsShell() {
   const [form, setForm] = useState<BacktestFormState>(buildDefaultForm);
+  const [builderDrafts, setBuilderDrafts] = useState<StrategyBuilderDraft[]>([]);
   const [feedback, setFeedback] = useState<ControlFeedback | null>(null);
   const [pendingLaunch, setPendingLaunch] = useState(false);
+  const [pendingSleeveLaunch, setPendingSleeveLaunch] = useState(false);
   const [selectedSuiteId, setSelectedSuiteId] = useState<string | null>(null);
   const [selectedDatasetId, setSelectedDatasetId] = useState<string | null>(null);
   const [selectedSleeveRunId, setSelectedSleeveRunId] = useState<string | null>(null);
@@ -304,6 +482,9 @@ export function BacktestsShell() {
     refreshInterval: 2000,
   });
   const datasets = useSWR<DatasetsListResponse>("/datasets", fetchJson, {
+    refreshInterval: 2000,
+  });
+  const strategyCatalog = useSWR<StrategyCatalogResponse>("/strategy-catalog", fetchJson, {
     refreshInterval: 2000,
   });
   const suites = useSWR<BacktestSuitesListResponse>("/backtest-suites", fetchJson, {
@@ -354,6 +535,10 @@ export function BacktestsShell() {
       refreshInterval: 2000,
     }
   );
+  const selectedDataset =
+    datasets.data?.items.find((item) => item.datasetId === selectedDatasetId) ??
+    datasets.data?.items[0] ??
+    null;
 
   useEffect(() => {
     const nextDatasetId = datasets.data?.items[0]?.datasetId ?? null;
@@ -381,6 +566,24 @@ export function BacktestsShell() {
     setSelectedSleeveRunId(null);
     setSelectedPortfolioRunId(null);
   }, [selectedDatasetId]);
+
+  useEffect(() => {
+    if (builderDrafts.length === 0 && strategyCatalog.data?.items.length) {
+      setBuilderDrafts([createBuilderDraft(strategyCatalog.data.items[0])]);
+    }
+  }, [builderDrafts.length, strategyCatalog.data]);
+
+  useEffect(() => {
+    if (!selectedDataset) {
+      return;
+    }
+    setBuilderDrafts((current) =>
+      current.map((draft) => ({
+        ...draft,
+        universe: draft.universe.filter((productId) => selectedDataset.products.includes(productId)),
+      })),
+    );
+  }, [selectedDataset]);
 
   useEffect(() => {
     const nextSleeveRunId = sleeves.data?.items[0]?.run_id ?? null;
@@ -472,6 +675,72 @@ export function BacktestsShell() {
     }
   }
 
+  function updateBuilderDraft(
+    draftId: string,
+    updater: (draft: StrategyBuilderDraft) => StrategyBuilderDraft,
+  ) {
+    setBuilderDrafts((current) =>
+      current.map((draft) => (draft.draftId === draftId ? updater(draft) : draft)),
+    );
+  }
+
+  function handleAddBuilderDraft() {
+    const fallback = strategyCatalog.data?.items[0];
+    if (!fallback) {
+      setFeedback({ tone: "warning", message: "Strategy catalog is unavailable." });
+      return;
+    }
+    setBuilderDrafts((current) => [...current, createBuilderDraft(fallback)]);
+  }
+
+  function handleRemoveBuilderDraft(draftId: string) {
+    setBuilderDrafts((current) => current.filter((draft) => draft.draftId !== draftId));
+  }
+
+  async function handleLaunchSleeves() {
+    if (!selectedDataset) {
+      setFeedback({ tone: "warning", message: "Select a cached dataset before launching sleeves." });
+      return;
+    }
+    if (!strategyCatalog.data) {
+      setFeedback({ tone: "warning", message: "Strategy catalog is unavailable." });
+      return;
+    }
+    if (builderErrors.length > 0) {
+      setFeedback({ tone: "warning", message: builderErrors[0] });
+      return;
+    }
+
+    const catalogById = new Map(strategyCatalog.data.items.map((item) => [item.strategyId, item]));
+    const request: SleeveLaunchRequest = {
+      datasetId: selectedDataset.datasetId,
+      strategyInstances: builderDrafts.map((draft) =>
+        buildStrategyInstanceRequest(draft, catalogById.get(draft.strategyId)!),
+      ),
+    };
+
+    setPendingSleeveLaunch(true);
+    setFeedback(null);
+    try {
+      const response = await launchSleeves(request);
+      const firstRunId = response.items[0]?.run_id ?? null;
+      setSelectedSleeveRunId(firstRunId);
+      await Promise.all([sleeves.mutate(), sleeveComparison.mutate(), selectedSleeve.mutate()]);
+      setFeedback({
+        tone: "success",
+        message: `Launched ${response.count} sleeve${response.count === 1 ? "" : "s"} for ${selectedDataset.datasetId}.`,
+      });
+    } catch (error) {
+      setFeedback(
+        error instanceof ApiError
+          ? { tone: "danger", message: error.message }
+          : { tone: "danger", message: "Unable to launch strategy sleeves." },
+      );
+    } finally {
+      setPendingSleeveLaunch(false);
+    }
+  }
+
   const activeJob =
     backtests.data?.active_job ??
     suites.data?.active_job ??
@@ -479,10 +748,11 @@ export function BacktestsShell() {
     suites.data?.latest_job ??
     null;
   const latestSuite = suites.data?.items[0] ?? null;
-  const selectedDataset =
-    datasets.data?.items.find((item) => item.datasetId === selectedDatasetId) ??
-    datasets.data?.items[0] ??
-    null;
+  const builderErrors = validateStrategyBuilderDrafts({
+    drafts: builderDrafts,
+    selectedDataset,
+    strategyCatalog: strategyCatalog.data,
+  });
   const hasConsoleError = backtests.error || suites.error;
 
   return (
@@ -817,6 +1087,174 @@ export function BacktestsShell() {
               </div>
             ) : (
               <LoadingBlock title="No cached datasets yet." />
+            )}
+          </ShellPanel>
+
+          <ShellPanel className="p-5">
+            <ShellHeader
+              eyebrow="Research Controls"
+              title="Build and launch strategy sleeves"
+              action="POST /api/sleeves"
+            />
+            {strategyCatalog.isLoading ? (
+              <LoadingBlock title="Loading strategy builder metadata." />
+            ) : strategyCatalog.error ? (
+              <ErrorBlock message={strategyCatalog.error.message} />
+            ) : (
+              <div className="space-y-4">
+                <div className="flex flex-col gap-3 border border-[var(--border)] bg-[var(--bg-elevated)] p-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="text-sm leading-6 text-[var(--muted)]">
+                    {selectedDataset
+                      ? `Launching sleeves against ${selectedDataset.datasetId} using the selected dataset universe.`
+                      : "Select a cached dataset to enable sleeve creation."}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={handleAddBuilderDraft}
+                      disabled={!strategyCatalog.data?.items.length}
+                      className="border border-[var(--border)] px-4 py-3 text-xs uppercase tracking-[0.24em] text-[var(--muted)] transition hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Add Sleeve
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleLaunchSleeves}
+                      disabled={pendingSleeveLaunch || !selectedDataset || builderErrors.length > 0}
+                      className="border border-[var(--border-strong)] bg-[rgba(84,191,255,0.08)] px-4 py-3 text-xs uppercase tracking-[0.24em] text-[var(--text)] transition hover:bg-[rgba(84,191,255,0.14)] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {pendingSleeveLaunch ? "Launching…" : "Launch Sleeves"}
+                    </button>
+                  </div>
+                </div>
+
+                {builderErrors.length > 0 ? (
+                  <div className="border border-[rgba(241,187,103,0.36)] bg-[rgba(241,187,103,0.08)] p-4 text-sm leading-6 text-[var(--warning)]">
+                    {builderErrors[0]}
+                  </div>
+                ) : null}
+
+                <div className="space-y-4">
+                  {builderDrafts.map((draft, index) => {
+                    const catalogItem =
+                      strategyCatalog.data?.items.find((item) => item.strategyId === draft.strategyId) ??
+                      strategyCatalog.data?.items[0];
+                    if (!catalogItem) {
+                      return null;
+                    }
+                    return (
+                      <div key={draft.draftId} className="border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
+                        <div className="mb-4 flex items-center justify-between gap-4">
+                          <div>
+                            <div className="mono text-[10px] uppercase tracking-[0.24em] text-[var(--accent)]">
+                              Sleeve {index + 1}
+                            </div>
+                            <div className="mt-2 text-sm text-[var(--muted)]">
+                              Configure a dataset-scoped strategy instance and launch or reuse its sleeve artifacts.
+                            </div>
+                          </div>
+                          {builderDrafts.length > 1 ? (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveBuilderDraft(draft.draftId)}
+                              className="border border-[var(--border)] px-3 py-2 text-xs uppercase tracking-[0.24em] text-[var(--muted)] transition hover:text-[var(--text)]"
+                            >
+                              Remove
+                            </button>
+                          ) : null}
+                        </div>
+
+                        <div className="grid gap-4 lg:grid-cols-2">
+                          <LaunchField
+                            label="Strategy Instance ID"
+                            value={draft.strategyInstanceId}
+                            onChange={(value) =>
+                              updateBuilderDraft(draft.draftId, (current) => ({
+                                ...current,
+                                strategyInstanceId: value,
+                              }))
+                            }
+                          />
+                          <StrategySelectField
+                            label="Strategy"
+                            value={draft.strategyId}
+                            options={strategyCatalog.data?.items ?? []}
+                            onChange={(value) =>
+                              updateBuilderDraft(draft.draftId, (current) => {
+                                const nextCatalogItem =
+                                  strategyCatalog.data?.items.find((item) => item.strategyId === value) ?? catalogItem;
+                                return {
+                                  ...current,
+                                  strategyId: value,
+                                  strategyParams: Object.fromEntries(
+                                    nextCatalogItem.strategyParams.map((field) => [
+                                      field.key,
+                                      current.strategyParams[field.key] ?? formatFieldDefault(field.defaultValue),
+                                    ]),
+                                  ),
+                                  riskOverrides: Object.fromEntries(
+                                    nextCatalogItem.riskOverrides.map((field) => [
+                                      field.key,
+                                      current.riskOverrides[field.key] ?? formatFieldDefault(field.defaultValue),
+                                    ]),
+                                  ),
+                                };
+                              })
+                            }
+                          />
+                        </div>
+
+                        <div className="mt-4">
+                          <MultiSelectGrid
+                            label="Asset Universe"
+                            options={selectedDataset?.products ?? []}
+                            selected={draft.universe}
+                            onToggle={(value) =>
+                              updateBuilderDraft(draft.draftId, (current) => ({
+                                ...current,
+                                universe: toggleSelection(current.universe, value),
+                              }))
+                            }
+                          />
+                        </div>
+
+                        <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                          {catalogItem.strategyParams.map((field) => (
+                            <LaunchField
+                              key={`${draft.draftId}-${field.key}`}
+                              label={field.label}
+                              type="number"
+                              step={field.step === null ? undefined : `${field.step}`}
+                              value={draft.strategyParams[field.key] ?? ""}
+                              onChange={(value) =>
+                                updateBuilderDraft(draft.draftId, (current) => ({
+                                  ...current,
+                                  strategyParams: { ...current.strategyParams, [field.key]: value },
+                                }))
+                              }
+                            />
+                          ))}
+                          {catalogItem.riskOverrides.map((field) => (
+                            <LaunchField
+                              key={`${draft.draftId}-risk-${field.key}`}
+                              label={field.label}
+                              type="number"
+                              step={field.step === null ? undefined : `${field.step}`}
+                              value={draft.riskOverrides[field.key] ?? ""}
+                              onChange={(value) =>
+                                updateBuilderDraft(draft.draftId, (current) => ({
+                                  ...current,
+                                  riskOverrides: { ...current.riskOverrides, [field.key]: value },
+                                }))
+                              }
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             )}
           </ShellPanel>
 

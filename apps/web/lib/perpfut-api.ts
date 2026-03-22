@@ -168,6 +168,42 @@ export type DatasetsListResponse = {
   count: number;
 };
 
+export type StrategyCatalogField = {
+  key: string;
+  label: string;
+  inputKind: "integer" | "number";
+  required: boolean;
+  defaultValue: number | null;
+  minValue: number | null;
+  maxValue: number | null;
+  step: number | null;
+};
+
+export type StrategyCatalogItem = {
+  strategyId: string;
+  label: string;
+  strategyParams: StrategyCatalogField[];
+  riskOverrides: StrategyCatalogField[];
+};
+
+export type StrategyCatalogResponse = {
+  items: StrategyCatalogItem[];
+  count: number;
+};
+
+export type StrategyInstanceRequest = {
+  strategyInstanceId: string;
+  strategyId: string;
+  universe: string[];
+  strategyParams: Record<string, number>;
+  riskOverrides: Record<string, number>;
+};
+
+export type SleeveLaunchRequest = {
+  datasetId: string;
+  strategyInstances: StrategyInstanceRequest[];
+};
+
 export type StrategySleeveSummary = {
   run_id: string;
   created_at: string | null;
@@ -493,6 +529,10 @@ export function stopPaperRun(): Promise<PaperRunStatusResponse> {
 
 export function startBacktest(request: BacktestRunRequest): Promise<BacktestJobStatusResponse> {
   return postJson<BacktestJobStatusResponse>("/backtests", request);
+}
+
+export function launchSleeves(request: SleeveLaunchRequest): Promise<StrategySleevesListResponse> {
+  return postJson<StrategySleevesListResponse>("/sleeves", request);
 }
 
 async function buildApiError(response: Response): Promise<ApiError> {

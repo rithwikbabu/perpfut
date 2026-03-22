@@ -27,13 +27,15 @@ vi.mock("@/lib/perpfut-api", async () => {
   return {
     ...actual,
     fetchJson: vi.fn(),
+    launchSleeves: vi.fn(),
     startBacktest: vi.fn(),
   };
 });
 
-const { fetchJson, startBacktest } = await import("@/lib/perpfut-api");
+const { fetchJson, launchSleeves, startBacktest } = await import("@/lib/perpfut-api");
 
 const mockedFetchJson = vi.mocked(fetchJson);
+const mockedLaunchSleeves = vi.mocked(launchSleeves);
 const mockedStartBacktest = vi.mocked(startBacktest);
 
 function renderBacktestsShell() {
@@ -72,6 +74,51 @@ const defaultSleeveListResponse = {
   ],
   count: 1,
 };
+
+const defaultStrategyCatalogResponse = {
+  items: [
+    {
+      strategyId: "momentum",
+      label: "Momentum",
+      strategyParams: [
+        { key: "lookback_candles", label: "Lookback Candles", inputKind: "integer", required: true, defaultValue: 20, minValue: 1, maxValue: null, step: 1 },
+        { key: "signal_scale", label: "Signal Scale", inputKind: "number", required: true, defaultValue: 35, minValue: 0, maxValue: null, step: 0.1 },
+      ],
+      riskOverrides: [
+        { key: "max_abs_position", label: "Max Abs Position", inputKind: "number", required: false, defaultValue: 0.5, minValue: 0, maxValue: null, step: 0.01 },
+        { key: "max_gross_position", label: "Max Gross Position", inputKind: "number", required: false, defaultValue: 1.0, minValue: 0, maxValue: null, step: 0.01 },
+        { key: "rebalance_threshold", label: "Rebalance Threshold", inputKind: "number", required: false, defaultValue: 0.1, minValue: 0, maxValue: null, step: 0.01 },
+        { key: "min_trade_notional_usdc", label: "Min Trade Notional (USDC)", inputKind: "number", required: false, defaultValue: 10, minValue: 0, maxValue: null, step: 1 },
+        { key: "max_daily_drawdown_usdc", label: "Max Daily Drawdown (USDC)", inputKind: "number", required: false, defaultValue: 250, minValue: 0, maxValue: null, step: 1 },
+      ],
+    },
+    {
+      strategyId: "mean_reversion",
+      label: "Mean Reversion",
+      strategyParams: [
+        { key: "lookback_candles", label: "Lookback Candles", inputKind: "integer", required: true, defaultValue: 20, minValue: 1, maxValue: null, step: 1 },
+        { key: "signal_scale", label: "Signal Scale", inputKind: "number", required: true, defaultValue: 35, minValue: 0, maxValue: null, step: 0.1 },
+      ],
+      riskOverrides: [
+        { key: "max_abs_position", label: "Max Abs Position", inputKind: "number", required: false, defaultValue: 0.5, minValue: 0, maxValue: null, step: 0.01 },
+        { key: "max_gross_position", label: "Max Gross Position", inputKind: "number", required: false, defaultValue: 1.0, minValue: 0, maxValue: null, step: 0.01 },
+        { key: "rebalance_threshold", label: "Rebalance Threshold", inputKind: "number", required: false, defaultValue: 0.1, minValue: 0, maxValue: null, step: 0.01 },
+        { key: "min_trade_notional_usdc", label: "Min Trade Notional (USDC)", inputKind: "number", required: false, defaultValue: 10, minValue: 0, maxValue: null, step: 1 },
+        { key: "max_daily_drawdown_usdc", label: "Max Daily Drawdown (USDC)", inputKind: "number", required: false, defaultValue: 250, minValue: 0, maxValue: null, step: 1 },
+      ],
+    },
+  ],
+  count: 2,
+};
+
+function withStrategyCatalog(handler: (path: string) => Promise<unknown>) {
+  return async (path: string) => {
+    if (path === "/strategy-catalog") {
+      return defaultStrategyCatalogResponse;
+    }
+    return handler(path);
+  };
+}
 
 const defaultSleeveComparisonResponse = {
   dataset_id: "dataset-1",
@@ -284,6 +331,7 @@ const defaultPortfolioDetailResponse = {
 describe("BacktestsShell", () => {
   beforeEach(() => {
     mockedFetchJson.mockReset();
+    mockedLaunchSleeves.mockReset();
     mockedStartBacktest.mockReset();
   });
 
@@ -1183,6 +1231,225 @@ describe("BacktestsShell", () => {
 
     expect(await screen.findByText("portfolio detail unavailable")).toBeInTheDocument();
     expect(screen.getAllByText("portfolio-run-1").length).toBeGreaterThan(0);
+  });
+
+  it("lets users add and remove sleeve builder cards and blocks invalid launches locally", async () => {
+    mockedFetchJson.mockImplementation(
+      withStrategyCatalog(async (path: string) => {
+        if (path === "/datasets") {
+          return {
+            items: [
+              {
+                datasetId: "dataset-1",
+                createdAt: "2026-03-22T05:00:00Z",
+                fingerprint: "fingerprint-123456",
+                source: "coinbase",
+                version: "1",
+                products: ["BTC-PERP-INTX", "ETH-PERP-INTX"],
+                start: "2026-03-20T12:00:00+00:00",
+                end: "2026-03-21T12:00:00+00:00",
+                granularity: "ONE_MINUTE",
+                candleCounts: { "BTC-PERP-INTX": 1440, "ETH-PERP-INTX": 1440 },
+              },
+            ],
+            count: 1,
+          };
+        }
+        if (path === "/backtests" || path === "/backtest-suites") {
+          return { items: [], count: 0, active_job: null, latest_job: null };
+        }
+        if (path === "/portfolio-runs") {
+          return { items: [], count: 0 };
+        }
+        if (path === "/portfolio-run-comparisons") {
+          return { dataset_id: null, ranking_policy: "rank by sharpe_ratio desc", items: [] };
+        }
+        if (path === "/sleeves" || path === "/sleeves?datasetId=dataset-1") {
+          return { items: [], count: 0 };
+        }
+        if (path === "/sleeve-comparisons" || path === "/sleeve-comparisons?datasetId=dataset-1") {
+          return { dataset_id: "dataset-1", ranking_policy: "rank by total_return_pct desc", items: [] };
+        }
+        throw new Error(`unexpected path ${path}`);
+      }),
+    );
+
+    renderBacktestsShell();
+
+    expect(await screen.findByText("Build and launch strategy sleeves")).toBeInTheDocument();
+    expect(screen.getAllByLabelText("Strategy Instance ID")).toHaveLength(1);
+
+    await userEvent.click(screen.getByRole("button", { name: "Add Sleeve" }));
+    expect(screen.getAllByLabelText("Strategy Instance ID")).toHaveLength(2);
+
+    await userEvent.click(screen.getAllByRole("button", { name: "Remove" })[0]);
+    expect(screen.getAllByLabelText("Strategy Instance ID")).toHaveLength(1);
+    const launchButton = screen.getByRole("button", { name: "Launch Sleeves" });
+
+    expect(await screen.findByText(/Select at least one asset/)).toBeInTheDocument();
+    expect(launchButton).toBeDisabled();
+    expect(mockedLaunchSleeves).not.toHaveBeenCalled();
+  });
+
+  it("launches sleeves, refreshes the list, and selects the returned sleeve", async () => {
+    let launched = false;
+    mockedFetchJson.mockImplementation(
+      withStrategyCatalog(async (path: string) => {
+        if (path === "/datasets") {
+          return {
+            items: [
+              {
+                datasetId: "dataset-1",
+                createdAt: "2026-03-22T05:00:00Z",
+                fingerprint: "fingerprint-123456",
+                source: "coinbase",
+                version: "1",
+                products: ["BTC-PERP-INTX", "ETH-PERP-INTX"],
+                start: "2026-03-20T12:00:00+00:00",
+                end: "2026-03-21T12:00:00+00:00",
+                granularity: "ONE_MINUTE",
+                candleCounts: { "BTC-PERP-INTX": 1440, "ETH-PERP-INTX": 1440 },
+              },
+            ],
+            count: 1,
+          };
+        }
+        if (path === "/backtests" || path === "/backtest-suites") {
+          return { items: [], count: 0, active_job: null, latest_job: null };
+        }
+        if (path === "/portfolio-runs") {
+          return { items: [], count: 0 };
+        }
+        if (path === "/portfolio-run-comparisons") {
+          return { dataset_id: null, ranking_policy: "rank by sharpe_ratio desc", items: [] };
+        }
+        if (path === "/sleeves" || path === "/sleeves?datasetId=dataset-1") {
+          return launched
+            ? {
+                items: [
+                  {
+                    run_id: "sleeve-run-new",
+                    created_at: "2026-03-22T06:10:00Z",
+                    dataset_id: "dataset-1",
+                    strategy_instance_id: "mom-launch",
+                    strategy_id: "momentum",
+                    date_range_start: "2026-03-20T12:00:00+00:00",
+                    date_range_end: "2026-03-21T12:00:00+00:00",
+                    total_pnl_usdc: 95,
+                    total_return_pct: 0.0095,
+                    max_drawdown_usdc: 20,
+                    max_drawdown_pct: 0.002,
+                    avg_abs_exposure_pct: 0.22,
+                    turnover_usdc: 2400,
+                  },
+                ],
+                count: 1,
+              }
+            : { items: [], count: 0 };
+        }
+        if (path === "/sleeve-comparisons" || path === "/sleeve-comparisons?datasetId=dataset-1") {
+          return launched
+            ? {
+                dataset_id: "dataset-1",
+                ranking_policy: "rank by total_return_pct desc",
+                items: [
+                  {
+                    rank: 1,
+                    run_id: "sleeve-run-new",
+                    dataset_id: "dataset-1",
+                    strategy_instance_id: "mom-launch",
+                    strategy_id: "momentum",
+                    date_range_start: "2026-03-20T12:00:00+00:00",
+                    date_range_end: "2026-03-21T12:00:00+00:00",
+                    total_pnl_usdc: 95,
+                    total_return_pct: 0.0095,
+                    max_drawdown_usdc: 20,
+                    max_drawdown_pct: 0.002,
+                    avg_abs_exposure_pct: 0.22,
+                    turnover_usdc: 2400,
+                    asset_contribution_totals: { "BTC-PERP-INTX": 60, "ETH-PERP-INTX": 35 },
+                  },
+                ],
+              }
+            : { dataset_id: "dataset-1", ranking_policy: "rank by total_return_pct desc", items: [] };
+        }
+        if (path === "/sleeves/sleeve-run-new") {
+          return {
+            run_id: "sleeve-run-new",
+            manifest: { run_id: "sleeve-run-new", strategy_instance_id: "mom-launch", dataset_id: "dataset-1" },
+            state: { run_id: "sleeve-run-new", ending_equity_usdc: 10095 },
+            analysis: {
+              ...defaultSleeveDetailResponse.analysis,
+              run_id: "sleeve-run-new",
+              total_pnl_usdc: 95,
+              total_return_pct: 0.0095,
+            },
+            sleeve_analysis: {
+              asset_contributions: [
+                { product_id: "BTC-PERP-INTX", total_pnl_usdc: 60 },
+                { product_id: "ETH-PERP-INTX", total_pnl_usdc: 35 },
+              ],
+            },
+          };
+        }
+        throw new Error(`unexpected path ${path}`);
+      }),
+    );
+    mockedLaunchSleeves.mockImplementation(async (request) => {
+      launched = true;
+      return {
+        items: [
+          {
+            run_id: "sleeve-run-new",
+            created_at: "2026-03-22T06:10:00Z",
+            dataset_id: "dataset-1",
+            strategy_instance_id: "mom-launch",
+            strategy_id: "momentum",
+            date_range_start: "2026-03-20T12:00:00+00:00",
+            date_range_end: "2026-03-21T12:00:00+00:00",
+            total_pnl_usdc: 95,
+            total_return_pct: 0.0095,
+            max_drawdown_usdc: 20,
+            max_drawdown_pct: 0.002,
+            avg_abs_exposure_pct: 0.22,
+            turnover_usdc: 2400,
+          },
+        ],
+        count: 1,
+      };
+    });
+
+    renderBacktestsShell();
+
+    expect(await screen.findByText("Build and launch strategy sleeves")).toBeInTheDocument();
+    const researchControls = screen
+      .getByText("Build and launch strategy sleeves")
+      .closest("section");
+    expect(researchControls).not.toBeNull();
+    await userEvent.clear(screen.getByLabelText("Strategy Instance ID"));
+    await userEvent.type(screen.getByLabelText("Strategy Instance ID"), "mom-launch");
+    await userEvent.click(within(researchControls!).getByRole("button", { name: "BTC-PERP-INTX" }));
+    await userEvent.click(screen.getByRole("button", { name: "Launch Sleeves" }));
+
+    await waitFor(() => expect(mockedLaunchSleeves).toHaveBeenCalledTimes(1));
+    expect(mockedLaunchSleeves.mock.calls[0]?.[0]).toMatchObject({
+      datasetId: "dataset-1",
+      strategyInstances: [
+        {
+          strategyInstanceId: "mom-launch",
+          strategyId: "momentum",
+          universe: ["BTC-PERP-INTX"],
+        },
+      ],
+    });
+    expect(await screen.findByText("Launched 1 sleeve for dataset-1.")).toBeInTheDocument();
+    expect((await screen.findAllByText("mom-launch")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("$95")).length).toBeGreaterThan(0);
+    await waitFor(() =>
+      expect(mockedFetchJson).toHaveBeenCalledWith("/sleeves/sleeve-run-new"),
+    );
+    expect(await screen.findByText("$60")).toBeInTheDocument();
+    expect(await screen.findByText("$35")).toBeInTheDocument();
   });
 });
 
