@@ -536,7 +536,7 @@ describe("BacktestsShell", () => {
     expect(screen.getByText("Cached dataset registry")).toBeInTheDocument();
     expect(screen.getAllByText("dataset-1").length).toBeGreaterThan(0);
     expect(screen.queryByText("No cached datasets yet.")).not.toBeInTheDocument();
-    expect(screen.getByText("selected")).toBeInTheDocument();
+    expect(screen.getAllByText("selected").length).toBeGreaterThan(0);
     expect(screen.getByText("Strategy sleeve runs")).toBeInTheDocument();
     expect(screen.getByText("Portfolio optimizer runs")).toBeInTheDocument();
     expect(screen.getByText("Selected optimizer run")).toBeInTheDocument();
@@ -931,6 +931,69 @@ describe("BacktestsShell", () => {
     expect((await screen.findAllByText("dataset registry unavailable")).length).toBeGreaterThan(0);
     expect(screen.queryByText("No cached datasets yet.")).not.toBeInTheDocument();
     expect(screen.getByText("No completed backtest suites yet.")).toBeInTheDocument();
+  });
+
+  it("still allows existing-sleeve optimizer launches when strategy catalog loading fails", async () => {
+    mockedFetchJson.mockImplementation(async (path: string) => {
+      if (path === "/strategy-catalog") {
+        throw new ApiError("catalog unavailable", 500);
+      }
+      if (path === "/datasets") {
+        return {
+          items: [
+            {
+              datasetId: "dataset-1",
+              createdAt: "2026-03-22T05:00:00Z",
+              fingerprint: "fingerprint-123456",
+              source: "coinbase",
+              version: "1",
+              products: ["BTC-PERP-INTX", "ETH-PERP-INTX"],
+              start: "2026-03-20T12:00:00+00:00",
+              end: "2026-03-21T12:00:00+00:00",
+              granularity: "ONE_MINUTE",
+              candleCounts: { "BTC-PERP-INTX": 1440, "ETH-PERP-INTX": 1440 },
+            },
+          ],
+          count: 1,
+        };
+      }
+      if (path === "/backtests" || path === "/backtest-suites") {
+        return { items: [], count: 0, active_job: null, latest_job: null };
+      }
+      if (path === "/portfolio-runs" || path === "/portfolio-runs?datasetId=dataset-1") {
+        return { items: [], count: 0 };
+      }
+      if (path === "/portfolio-run-comparisons" || path === "/portfolio-run-comparisons?datasetId=dataset-1") {
+        return { dataset_id: "dataset-1", ranking_policy: "rank by sharpe_ratio desc", items: [] };
+      }
+      if (path === "/sleeves" || path === "/sleeves?datasetId=dataset-1") {
+        return defaultSleeveListResponse;
+      }
+      if (path === "/sleeve-comparisons" || path === "/sleeve-comparisons?datasetId=dataset-1") {
+        return defaultSleeveComparisonResponse;
+      }
+      if (path === "/sleeves/sleeve-run-1") {
+        return defaultSleeveDetailResponse;
+      }
+      throw new Error(`unexpected path ${path}`);
+    });
+    mockedStartPortfolioRun.mockResolvedValue({
+      ...defaultPortfolioDetailResponse,
+      run_id: "portfolio-run-1",
+    });
+
+    renderBacktestsShell();
+
+    expect(await screen.findByText(/catalog unavailable/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Use Existing Sleeves" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Launch Optimizer" }));
+
+    await waitFor(() => expect(mockedStartPortfolioRun).toHaveBeenCalledTimes(1));
+    expect(mockedStartPortfolioRun.mock.calls[0]?.[0]).toMatchObject({
+      datasetId: "dataset-1",
+      sleeveRunIds: ["sleeve-run-1"],
+    });
   });
 
   it("clears stale sleeve attribution when the selected dataset changes", async () => {
@@ -1448,7 +1511,7 @@ describe("BacktestsShell", () => {
     expect(await screen.findByText("Launched 1 sleeve for dataset-1.")).toBeInTheDocument();
   });
 
-  it("launches an optimizer run from existing sleeves and selects the returned detail", async () => {
+  it("submits an optimizer launch from existing sleeves with the selected sleeve ids", async () => {
     let launched = false;
     mockedFetchJson.mockImplementation(
       withStrategyCatalog(async (path: string) => {
@@ -1542,7 +1605,7 @@ describe("BacktestsShell", () => {
             config: { lookback_days: 60 },
             state: { ending_equity_usdc: 10220 },
             analysis: {
-              ...defaultPortfolioRunDetailResponse.analysis,
+              ...defaultPortfolioDetailResponse.analysis,
               run_id: "portfolio-run-new",
               total_pnl_usdc: 220,
               total_return_pct: 0.022,
@@ -1550,8 +1613,8 @@ describe("BacktestsShell", () => {
               sleeve_run_ids: ["sleeve-run-1"],
               strategy_instance_ids: ["mom-fast"],
             },
-            weights: defaultPortfolioRunDetailResponse.weights,
-            diagnostics: defaultPortfolioRunDetailResponse.diagnostics,
+            weights: defaultPortfolioDetailResponse.weights,
+            diagnostics: defaultPortfolioDetailResponse.diagnostics,
             contributions: {
               items: [
                 {
@@ -1578,7 +1641,7 @@ describe("BacktestsShell", () => {
         config: { lookback_days: 60 },
         state: { ending_equity_usdc: 10220 },
         analysis: {
-          ...defaultPortfolioRunDetailResponse.analysis,
+          ...defaultPortfolioDetailResponse.analysis,
           run_id: "portfolio-run-new",
           total_pnl_usdc: 220,
           total_return_pct: 0.022,
@@ -1586,8 +1649,8 @@ describe("BacktestsShell", () => {
           sleeve_run_ids: ["sleeve-run-1"],
           strategy_instance_ids: ["mom-fast"],
         },
-        weights: defaultPortfolioRunDetailResponse.weights,
-        diagnostics: defaultPortfolioRunDetailResponse.diagnostics,
+        weights: defaultPortfolioDetailResponse.weights,
+        diagnostics: defaultPortfolioDetailResponse.diagnostics,
         contributions: {
           items: [
             {
@@ -1617,7 +1680,7 @@ describe("BacktestsShell", () => {
     expect(mockedLaunchSleeves).not.toHaveBeenCalled();
   });
 
-  it("launches an optimizer run in auto-build mode and refreshes sleeves plus portfolio results", async () => {
+  it("submits an optimizer launch in auto-build mode with builder strategy instances", async () => {
     let launched = false;
     mockedFetchJson.mockImplementation(
       withStrategyCatalog(async (path: string) => {
@@ -1768,7 +1831,7 @@ describe("BacktestsShell", () => {
             config: { lookback_days: 60 },
             state: { ending_equity_usdc: 10140 },
             analysis: {
-              ...defaultPortfolioRunDetailResponse.analysis,
+              ...defaultPortfolioDetailResponse.analysis,
               run_id: "portfolio-run-auto",
               total_pnl_usdc: 140,
               total_return_pct: 0.014,
@@ -1776,8 +1839,8 @@ describe("BacktestsShell", () => {
               sleeve_run_ids: ["sleeve-run-auto"],
               strategy_instance_ids: ["mom-auto"],
             },
-            weights: defaultPortfolioRunDetailResponse.weights,
-            diagnostics: defaultPortfolioRunDetailResponse.diagnostics,
+            weights: defaultPortfolioDetailResponse.weights,
+            diagnostics: defaultPortfolioDetailResponse.diagnostics,
             contributions: {
               items: [
                 {
@@ -1804,7 +1867,7 @@ describe("BacktestsShell", () => {
         config: { lookback_days: 60 },
         state: { ending_equity_usdc: 10140 },
         analysis: {
-          ...defaultPortfolioRunDetailResponse.analysis,
+          ...defaultPortfolioDetailResponse.analysis,
           run_id: "portfolio-run-auto",
           total_pnl_usdc: 140,
           total_return_pct: 0.014,
@@ -1812,8 +1875,8 @@ describe("BacktestsShell", () => {
           sleeve_run_ids: ["sleeve-run-auto"],
           strategy_instance_ids: ["mom-auto"],
         },
-        weights: defaultPortfolioRunDetailResponse.weights,
-        diagnostics: defaultPortfolioRunDetailResponse.diagnostics,
+        weights: defaultPortfolioDetailResponse.weights,
+        diagnostics: defaultPortfolioDetailResponse.diagnostics,
         contributions: {
           items: [
             {

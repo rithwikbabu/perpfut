@@ -826,7 +826,8 @@ export function BacktestsShell() {
       setFeedback({ tone: "warning", message: "Select a cached dataset before launching the optimizer." });
       return;
     }
-    if (!strategyCatalog.data) {
+    const strategyCatalogData = strategyCatalog.data;
+    if (optimizerLaunchMode === "auto-build" && !strategyCatalogData) {
       setFeedback({ tone: "warning", message: "Strategy catalog is unavailable." });
       return;
     }
@@ -848,7 +849,11 @@ export function BacktestsShell() {
     if (optimizerLaunchMode === "existing-sleeves") {
       request.sleeveRunIds = selectedOptimizerSleeveIds;
     } else {
-      const catalogById = new Map(strategyCatalog.data.items.map((item) => [item.strategyId, item]));
+      if (!strategyCatalogData) {
+        setFeedback({ tone: "warning", message: "Strategy catalog is unavailable." });
+        return;
+      }
+      const catalogById = new Map(strategyCatalogData.items.map((item) => [item.strategyId, item]));
       request.strategyInstances = builderDrafts.map((draft) =>
         buildStrategyInstanceRequest(draft, catalogById.get(draft.strategyId)!),
       );
@@ -1247,12 +1252,13 @@ export function BacktestsShell() {
               title="Build and launch strategy sleeves"
               action="POST /api/sleeves"
             />
-            {strategyCatalog.isLoading ? (
-              <LoadingBlock title="Loading strategy builder metadata." />
-            ) : strategyCatalog.error ? (
-              <ErrorBlock message={strategyCatalog.error.message} />
-            ) : (
-              <div className="space-y-4">
+            <div className="space-y-4">
+              {strategyCatalog.isLoading ? (
+                <LoadingBlock title="Loading strategy builder metadata." />
+              ) : strategyCatalog.error ? (
+                <ErrorBlock message={`${strategyCatalog.error.message}. Sleeve builder and auto-build mode are unavailable.`} />
+              ) : (
+                <>
                 <div className="flex flex-col gap-3 border border-[var(--border)] bg-[var(--bg-elevated)] p-4 lg:flex-row lg:items-center lg:justify-between">
                   <div className="text-sm leading-6 text-[var(--muted)]">
                     {selectedDataset
@@ -1405,6 +1411,8 @@ export function BacktestsShell() {
                     );
                   })}
                 </div>
+                </>
+              )}
 
                 <div className="border-t border-[var(--border)] pt-4">
                   <div className="flex flex-col gap-3 border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
@@ -1432,11 +1440,12 @@ export function BacktestsShell() {
                         <button
                           type="button"
                           onClick={() => setOptimizerLaunchMode("auto-build")}
+                          disabled={!strategyCatalog.data?.items.length}
                           className={`border px-4 py-3 text-xs uppercase tracking-[0.24em] transition ${
                             optimizerLaunchMode === "auto-build"
                               ? "border-[var(--border-strong)] bg-[rgba(84,191,255,0.08)] text-[var(--text)]"
                               : "border-[var(--border)] text-[var(--muted)] hover:text-[var(--text)]"
-                          }`}
+                          } disabled:cursor-not-allowed disabled:opacity-50`}
                         >
                           Auto-Build From Builder
                         </button>
@@ -1554,8 +1563,7 @@ export function BacktestsShell() {
                     </div>
                   </div>
                 </div>
-              </div>
-            )}
+            </div>
           </ShellPanel>
 
           <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
