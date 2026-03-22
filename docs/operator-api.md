@@ -1,9 +1,11 @@
 # Operator API
 
-`perpfut` exposes a local-only operator API for the Next.js dashboard.
+`perpfut` exposes a local-only operator API for the Next.js dashboard and the
+historical research console.
 
-The current dashboard is monitor-first. Read routes are already consumed by the
-UI, while the paper-run control routes are available for the next frontend step.
+The API is artifact-backed. It does not maintain an in-memory trading or
+research state model for the UI; instead it reads the newest valid files under
+`runs/` and `runs/backtests/`.
 
 ## Runtime
 
@@ -47,6 +49,13 @@ All routes are rooted at `/api`.
 - `GET /api/backtests/{runId}/positions?limit=`
 - `GET /api/backtest-suites`
 - `GET /api/backtest-suites/{suiteId}`
+- `GET /api/sleeves`
+- `GET /api/sleeve-comparisons`
+- `GET /api/sleeves/{runId}`
+- `GET /api/portfolio-runs`
+- `GET /api/portfolio-run-comparisons`
+- `GET /api/portfolio-runs/{runId}`
+- `GET /api/portfolio-runs/{runId}/analysis`
 
 ### Control routes
 
@@ -54,8 +63,11 @@ All routes are rooted at `/api`.
 - `POST /api/paper-runs/stop`
 - `POST /api/datasets`
 - `POST /api/backtests`
+- `POST /api/portfolio-runs`
 
-Start requests accept:
+## Paper Requests
+
+Paper-run start requests accept:
 
 ```json
 {
@@ -71,6 +83,8 @@ Start requests accept:
 
 The service allows only one active paper run at a time.
 
+## Dataset Requests
+
 Dataset build requests accept:
 
 ```json
@@ -84,6 +98,20 @@ Dataset build requests accept:
 
 Dataset builds are synchronous in v1 and return the dataset summary directly.
 Requests must use timezone-aware timestamps.
+
+The returned dataset summary is the cache anchor for all later research:
+
+- `datasetId`
+- `fingerprint`
+- `source`
+- `version`
+- `products`
+- `start`
+- `end`
+- `granularity`
+- `candleCounts`
+
+## Backtest Requests
 
 Backtest launch requests accept either a cached dataset id:
 
@@ -118,15 +146,112 @@ or an inline historical range:
 
 The service currently allows only one active backtest job at a time.
 
-### Dashboard Overview Shape
+Backtest job progress is surfaced through `active_job` and `latest_job` on the
+list routes. The UI should treat these as the canonical status source for:
 
-`GET /api/dashboard/overview` now returns:
+- current phase
+- phase message
+- completed runs versus total runs
+- progress percentage
+- elapsed seconds
+- ETA seconds
+- terminal error, if any
+
+## Research Stack Requests
+
+The research stack adds two higher-level API domains on top of datasets and
+backtests:
+
+1. `sleeves`: strategy-instance studies over one cached dataset
+2. `portfolio-runs`: optimizer studies over cached sleeve outputs
+
+### Sleeve routes
+
+- `GET /api/sleeves`
+- `GET /api/sleeves?datasetId=<dataset_id>`
+- `GET /api/sleeve-comparisons`
+- `GET /api/sleeve-comparisons?datasetId=<dataset_id>`
+- `GET /api/sleeves/{runId}`
+
+Sleeve list responses are newest-first summaries keyed by dataset and strategy
+instance. Sleeve detail responses include:
+
+- `manifest`
+- `state`
+- canonical `analysis`
+- `sleeve_analysis` with per-asset contribution totals
+
+### Portfolio optimizer routes
+
+- `GET /api/portfolio-runs`
+- `GET /api/portfolio-runs?datasetId=<dataset_id>`
+- `GET /api/portfolio-run-comparisons`
+- `GET /api/portfolio-run-comparisons?datasetId=<dataset_id>`
+- `GET /api/portfolio-runs/{runId}`
+- `GET /api/portfolio-runs/{runId}/analysis`
+- `POST /api/portfolio-runs`
+
+`POST /api/portfolio-runs` accepts:
+
+```json
+{
+  "datasetId": "20260322T120000000000Z",
+  "startingCapitalUsdc": 10000,
+  "lookbackDays": 60,
+  "maxStrategyWeight": 0.4,
+  "covarianceShrinkage": 0.1,
+  "ridgePenalty": 0.001,
+  "turnoverCostBps": 2.0,
+  "strategyInstances": [
+    {
+      "strategyInstanceId": "mom-fast",
+      "strategyId": "momentum",
+      "universe": ["BTC-PERP-INTX", "ETH-PERP-INTX"],
+      "strategyParams": {
+        "lookback_candles": 10,
+        "signal_scale": 20.0
+      },
+      "riskOverrides": {
+        "max_abs_position": 0.3
+      }
+    }
+  ]
+}
+```
+
+The top-level API request uses camelCase field names. The nested
+`strategyParams` and `riskOverrides` objects keep the snake_case keys from the
+research-only `StrategyInstanceSpec` contract.
+
+Portfolio detail responses include:
+
+- `manifest`
+- `config`
+- `state`
+- `analysis`
+- `weights`
+- `diagnostics`
+- `contributions`
+
+These routes are what power the frontend optimizer views for:
+
+- run list and selection
+- Sharpe, return, drawdown, and turnover summaries
+- daily weight history
+- per-strategy contribution attribution
+
+## Dashboard Overview Shape
+
+`GET /api/dashboard/overview` returns:
 
 - `latest_run`: newest readable run matching the requested mode
 - `latest_state`: raw latest checkpoint payload for the run
-- `latest_decision`: normalized operator-facing decision summary derived from the latest checkpoint
-- `latest_analysis`: canonical performance summary derived from the run artifacts
-- `recent_events`, `recent_fills`, `recent_positions`: newest-first artifact rows
+- `latest_decision`: normalized operator-facing decision summary derived from
+  the latest checkpoint
+- `latest_analysis`: canonical performance summary derived from the run
+  artifacts
+- `recent_events`, `recent_fills`, `recent_positions`: newest-first artifact
+  rows
 
 `latest_decision` contains:
 
@@ -142,41 +267,34 @@ The service currently allows only one active backtest job at a time.
 
 The nested decision objects use the same field names written into run artifacts.
 
-`GET /api/runs/{runId}/analysis` returns the same canonical analysis payload used by
-`latest_analysis`, including:
+`GET /api/runs/{runId}/analysis` returns the same canonical analysis payload
+used by `latest_analysis`, including:
 
 - run identity: `run_id`, `mode`, `product_id`, `strategy_id`
 - timing: `started_at`, `ended_at`, `cycle_count`
-- pnl and return: `starting_equity_usdc`, `ending_equity_usdc`, `realized_pnl_usdc`, `unrealized_pnl_usdc`, `total_pnl_usdc`, `total_return_pct`
-- risk and activity: `max_drawdown_usdc`, `max_drawdown_pct`, `turnover_usdc`, `fill_count`, `trade_count`
-- exposure and decisions: `avg_abs_exposure_pct`, `max_abs_exposure_pct`, `decision_counts`
+- pnl and return: `starting_equity_usdc`, `ending_equity_usdc`,
+  `realized_pnl_usdc`, `unrealized_pnl_usdc`, `total_pnl_usdc`,
+  `total_return_pct`
+- risk and activity: `max_drawdown_usdc`, `max_drawdown_pct`, `turnover_usdc`,
+  `fill_count`, `trade_count`
+- exposure and decisions: `avg_abs_exposure_pct`, `max_abs_exposure_pct`,
+  `decision_counts`
 - chart series: `equity_series`, `drawdown_series`, `exposure_series`
 
-### Backtest API Shape
+## Backtest and Research Response Shape
 
 `GET /api/datasets` returns:
 
-- `items`: newest-first cached datasets with fingerprint, source, coverage, and candle counts
+- `items`: newest-first cached datasets with fingerprint, source, coverage, and
+  candle counts
 - `count`
-
-`GET /api/datasets/{datasetId}` returns:
-
-- dataset identity: `datasetId`, `createdAt`, `fingerprint`, `source`, `version`
-- coverage: `products`, `start`, `end`, `granularity`
-- counts: `candleCounts`
 
 `GET /api/backtests` returns:
 
 - `items`: newest-first completed backtest runs with canonical metrics
-- `count`: number of returned runs
+- `count`
 - `active_job`: the current in-flight backtest job, or `null`
 - `latest_job`: the most recent terminal backtest job, or `null`
-
-`GET /api/backtests/{runId}` returns:
-
-- `manifest`
-- `state`
-- `analysis`
 
 `GET /api/backtest-suites` returns:
 
@@ -190,7 +308,23 @@ The nested decision objects use the same field names written into run artifacts.
 - suite identity: `suite_id`, `created_at`, `dataset_id`
 - suite scope: `products`, `strategies`, `run_ids`
 - ranking metadata: `ranking_policy`
+- date coverage: `date_range_start`, `date_range_end`
+- summary risk metric: `sharpe_ratio`
 - ranked items with canonical performance metrics per run
+
+`GET /api/sleeve-comparisons` returns:
+
+- `dataset_id`
+- `ranking_policy`
+- ranked sleeve items with return, drawdown, turnover, exposure, and per-asset
+  contribution totals
+
+`GET /api/portfolio-run-comparisons` returns:
+
+- `dataset_id`
+- `ranking_policy`
+- ranked optimizer runs with Sharpe, return, drawdown, turnover, gross-weight,
+  and strategy-lineup metadata
 
 ## Design Notes
 
@@ -199,10 +333,12 @@ The nested decision objects use the same field names written into run artifacts.
 - Paper runs are launched by spawning `python3 -m perpfut paper ...`.
 - Dataset builds are handled synchronously inside the API process in v1.
 - Backtest suites are launched by spawning `python3 -m perpfut backtest run ...`.
+- Optimizer portfolio runs are executed inline inside the API process in v1.
 - Stop requests send `SIGTERM`, then escalate to `SIGKILL` after 5 seconds.
 - Process metadata writes are atomic and protected by a local control lock.
 - Backtest jobs persist status to `runs/backtests/control/jobs/<job_id>.json`.
-- Live mode remains read-only in the UI. There are no live-trading control routes.
+- Live mode remains read-only in the UI. There are no live-trading control
+  routes.
 
 ## Frontend Expectations
 
@@ -210,6 +346,9 @@ The nested decision objects use the same field names written into run artifacts.
 - Treat missing latest runs as an empty state, not an error.
 - Treat `409` on `POST /api/paper-runs` as "paper run already active".
 - Treat `409` on `POST /api/backtests` as "backtest job already active".
-- Treat `500` on control routes as operator-visible failures that should not be retried blindly.
-- Use `/api/dashboard/overview` for the landing page and `/api/runs/{runId}/...` for drill-down views.
-- Use `/api/backtests` and `/api/backtest-suites/...` for the backtest console.
+- Treat `500` on control routes as operator-visible failures that should not be
+  retried blindly.
+- Use `/api/dashboard/overview` for the landing page and `/api/runs/{runId}/...`
+  for drill-down views.
+- Use `/api/datasets`, `/api/backtests`, `/api/backtest-suites`,
+  `/api/sleeves`, and `/api/portfolio-runs` for the research console.
