@@ -50,6 +50,27 @@ describe("RunDetail", () => {
           run_id: "20260322T020000000000Z_demo",
           data: {
             equity_usdc: 10125,
+            cycle_id: "cycle-2",
+            signal: {
+              strategy: "momentum",
+              raw_value: 0.0042,
+              target_position: 0.25,
+            },
+            risk_decision: {
+              target_after_risk: 0.25,
+              current_position: 0.15,
+              delta_notional_usdc: 2000,
+            },
+            execution_summary: {
+              action: "skipped",
+              reason_code: "below_rebalance_threshold",
+              reason_message: "Delta position 0.0200 is below the rebalance threshold of 0.1000.",
+              summary: "Skipped rebalancing: delta position remained below threshold.",
+            },
+            no_trade_reason: {
+              code: "below_rebalance_threshold",
+              message: "Delta position 0.0200 is below the rebalance threshold of 0.1000.",
+            },
           },
         };
       }
@@ -91,6 +112,9 @@ describe("RunDetail", () => {
             {
               event_type: "cycle",
               cycle_id: "cycle-2",
+              execution_summary: {
+                summary: "Skipped rebalancing: delta position remained below threshold.",
+              },
             },
           ],
         };
@@ -103,6 +127,10 @@ describe("RunDetail", () => {
     expect(await screen.findByText("Run Detail: 20260322T020000000000Z_demo")).toBeInTheDocument();
     expect(screen.getByText("Recent Fill Tape")).toBeInTheDocument();
     expect(screen.getByText("BUY")).toBeInTheDocument();
+    expect(screen.getByText("Latest Decision Snapshot")).toBeInTheDocument();
+    expect(
+      screen.getAllByText("Skipped rebalancing: delta position remained below threshold.").length
+    ).toBeGreaterThan(0);
     expect(screen.getByText("Operator Event Stream")).toBeInTheDocument();
   });
 
