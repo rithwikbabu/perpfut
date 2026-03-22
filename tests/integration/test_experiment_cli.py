@@ -181,3 +181,170 @@ def test_experiment_cli_exits_cleanly_when_source_run_has_no_replay_snapshots(tm
         assert str(exc) == f"source run has no replayable market snapshots: {source_run_id}"
     else:
         raise AssertionError("expected SystemExit")
+
+
+def test_compare_experiments_cli_ranks_candidates_for_a_source_run(tmp_path, capsys) -> None:
+    source_run_id = "20260322T020000000000Z_source"
+    source_run_dir = tmp_path / source_run_id
+    source_run_dir.mkdir(parents=True)
+    _write_json(
+        source_run_dir / "manifest.json",
+        {
+            "run_id": source_run_id,
+            "created_at": "2026-03-22T02:00:00Z",
+            "mode": "paper",
+            "product_id": "BTC-PERP-INTX",
+            "strategy_id": "momentum",
+        },
+    )
+    _write_json(
+        source_run_dir / "config.json",
+        {
+            "simulation": {
+                "starting_collateral_usdc": 10000.0,
+                "max_leverage": 2.0,
+            },
+            "strategy": {
+                "strategy_id": "momentum",
+            },
+        },
+    )
+    _write_json(
+        source_run_dir / "state.json",
+        {
+            "run_id": source_run_id,
+            "cycle_id": "cycle-0002",
+            "mode": "paper",
+            "position": {
+                "quantity": 0.0,
+                "entry_price": None,
+                "mark_price": 102.0,
+                "collateral_usdc": 10000.0,
+                "realized_pnl_usdc": 50.0,
+            },
+        },
+    )
+    _write_ndjson(
+        source_run_dir / "events.ndjson",
+        [
+            {
+                "event_type": "cycle",
+                "cycle_id": "cycle-0001",
+                "timestamp": "2026-03-22T02:01:00Z",
+                "execution_summary": {"reason_code": "filled"},
+            },
+        ],
+    )
+
+    experiments_dir = tmp_path / "experiments"
+    alpha = experiments_dir / "20260322T030000000000Z_alpha"
+    alpha.mkdir(parents=True)
+    _write_json(
+        alpha / "manifest.json",
+        {
+            "run_id": alpha.name,
+            "mode": "paper",
+            "product_id": "BTC-PERP-INTX",
+            "strategy_id": "momentum",
+            "source_run_id": source_run_id,
+            "strategy_params": {"lookback_candles": 3, "signal_scale": 10.0},
+        },
+    )
+    _write_json(
+        alpha / "analysis.json",
+        {
+            "run_id": alpha.name,
+            "strategy_id": "momentum",
+            "total_pnl_usdc": 90.0,
+            "total_return_pct": 0.009,
+            "max_drawdown_usdc": 30.0,
+            "max_drawdown_pct": 0.003,
+            "turnover_usdc": 400.0,
+            "fill_count": 3,
+            "avg_abs_exposure_pct": 0.10,
+            "max_abs_exposure_pct": 0.20,
+            "decision_counts": {"filled": 2},
+        },
+    )
+
+    beta = experiments_dir / "20260322T031000000000Z_beta"
+    beta.mkdir(parents=True)
+    _write_json(
+        beta / "manifest.json",
+        {
+            "run_id": beta.name,
+            "mode": "paper",
+            "product_id": "BTC-PERP-INTX",
+            "strategy_id": "mean_reversion",
+            "source_run_id": source_run_id,
+            "strategy_params": {"lookback_candles": 5, "signal_scale": 12.0},
+        },
+    )
+    _write_json(
+        beta / "analysis.json",
+        {
+            "run_id": beta.name,
+            "strategy_id": "mean_reversion",
+            "total_pnl_usdc": 140.0,
+            "total_return_pct": 0.014,
+            "max_drawdown_usdc": 20.0,
+            "max_drawdown_pct": 0.002,
+            "turnover_usdc": 350.0,
+            "fill_count": 2,
+            "avg_abs_exposure_pct": 0.09,
+            "max_abs_exposure_pct": 0.18,
+            "decision_counts": {"filled": 2},
+        },
+    )
+
+    exit_code = main(
+        [
+            "compare-experiments",
+            "--runs-dir",
+            str(tmp_path),
+            "--source-run-id",
+            source_run_id,
+        ]
+    )
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["source_run_id"] == source_run_id
+    assert payload["experiments_count"] == 2
+    assert payload["baseline"]["run_id"] == source_run_id
+    assert payload["items"][0]["rank"] == 1
+    assert payload["items"][0]["run_id"] == beta.name
+    assert payload["items"][0]["strategy_id"] == "mean_reversion"
+    assert payload["items"][1]["rank"] == 2
+    assert payload["items"][1]["run_id"] == alpha.name
+
+
+def test_compare_experiments_cli_exits_cleanly_when_no_candidates_exist(tmp_path) -> None:
+    source_run_id = "20260322T020000000000Z_source"
+    source_run_dir = tmp_path / source_run_id
+    source_run_dir.mkdir(parents=True)
+    _write_json(
+        source_run_dir / "manifest.json",
+        {
+            "run_id": source_run_id,
+            "created_at": "2026-03-22T02:00:00Z",
+            "mode": "paper",
+            "product_id": "BTC-PERP-INTX",
+        },
+    )
+    _write_json(source_run_dir / "state.json", {"run_id": source_run_id})
+
+    try:
+        main(
+            [
+                "compare-experiments",
+                "--runs-dir",
+                str(tmp_path),
+                "--source-run-id",
+                source_run_id,
+            ]
+        )
+    except SystemExit as exc:
+        assert str(exc) == f"no experiments found for source run: {source_run_id}"
+    else:
+        raise AssertionError("expected SystemExit")

@@ -14,6 +14,7 @@ from .config import AppConfig
 from .domain import Mode
 from .engine import PaperEngine
 from .experiment import run_experiment
+from .experiment import compare_experiments
 from .exchange_coinbase import CoinbasePrivateClient, CoinbasePublicClient
 from .live_execution import LiveExecutor
 from .preflight import run_preflight
@@ -61,6 +62,13 @@ def build_parser() -> argparse.ArgumentParser:
     experiment_parser.add_argument("--signal-scale", type=float, default=None)
     experiment_parser.add_argument("--runs-dir", type=Path, default=None)
 
+    compare_experiments_parser = subparsers.add_parser(
+        "compare-experiments",
+        help="rank experiment outputs for a single source run",
+    )
+    compare_experiments_parser.add_argument("--source-run-id", required=True)
+    compare_experiments_parser.add_argument("--runs-dir", type=Path, default=None)
+
     reconcile_parser = subparsers.add_parser(
         "reconcile",
         help="fetch and normalize read-only INTX portfolio state",
@@ -107,6 +115,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_analyze(args)
     if args.command == "experiment":
         return _run_experiment(args)
+    if args.command == "compare-experiments":
+        return _run_compare_experiments(args)
     if args.command == "reconcile":
         return _run_reconcile(args)
     if args.command == "preflight":
@@ -224,6 +234,22 @@ def _run_experiment(args: argparse.Namespace) -> int:
             sort_keys=True,
         )
     )
+    return 0
+
+
+def _run_compare_experiments(args: argparse.Namespace) -> int:
+    config = AppConfig.from_env().with_overrides(runs_dir=args.runs_dir)
+    try:
+        report = compare_experiments(
+            base_runs_dir=config.runtime.runs_dir,
+            source_run_id=args.source_run_id,
+        )
+    except FileNotFoundError as exc:
+        raise SystemExit(str(exc)) from exc
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise SystemExit(str(exc)) from exc
+
+    print(json.dumps(asdict(report), indent=2, sort_keys=True))
     return 0
 
 
