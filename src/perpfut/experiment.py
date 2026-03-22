@@ -157,12 +157,18 @@ def compare_experiments(*, base_runs_dir: Path, source_run_id: str) -> Experimen
 
     entries: list[ExperimentComparisonEntry] = []
     for run_dir in _list_experiment_runs(base_runs_dir / "experiments"):
-        manifest = _load_optional_dict(run_dir / "manifest.json")
+        try:
+            manifest = _load_optional_dict(run_dir / "manifest.json")
+        except (OSError, json.JSONDecodeError, ValueError):
+            continue
         if not isinstance(manifest, dict):
             continue
         if _as_str(manifest.get("source_run_id")) != source_run_id:
             continue
-        analysis = _load_analysis_payload(run_dir)
+        try:
+            analysis = _load_analysis_payload(run_dir)
+        except (FileNotFoundError, OSError, json.JSONDecodeError, ValueError):
+            continue
         entries.append(
             ExperimentComparisonEntry(
                 rank=0,
@@ -341,11 +347,14 @@ def _list_experiment_runs(experiments_dir: Path) -> list[Path]:
 
 
 def _load_analysis_payload(run_dir: Path) -> dict[str, Any]:
-    analysis_path = run_dir / "analysis.json"
-    if analysis_path.exists():
+    try:
+        return asdict(analyze_run(run_dir))
+    except (FileNotFoundError, OSError, json.JSONDecodeError, ValueError):
+        analysis_path = run_dir / "analysis.json"
+        if not analysis_path.exists():
+            raise
         payload = json.loads(analysis_path.read_text(encoding="utf-8"))
         return _require_dict(payload, analysis_path)
-    return asdict(analyze_run(run_dir))
 
 
 def _load_baseline_summary(source_run_dir: Path) -> ExperimentBaselineSummary | None:
