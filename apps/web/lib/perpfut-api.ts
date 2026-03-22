@@ -226,6 +226,13 @@ export type BacktestSuiteDetailResponse = {
   items: BacktestSuiteComparisonItem[];
 };
 
+export type BacktestRunDetailResponse = {
+  run_id: string;
+  manifest: Record<string, unknown>;
+  state: Record<string, unknown>;
+  analysis: RunAnalysisResponse;
+};
+
 const API_BASE = "/api/perpfut";
 
 export class ApiError extends Error {

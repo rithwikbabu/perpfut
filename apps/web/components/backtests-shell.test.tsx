@@ -12,6 +12,16 @@ vi.mock("next/link", () => ({
   default: ({ href, children }: { href: string; children: React.ReactNode }) => <a href={href}>{children}</a>,
 }));
 
+vi.mock("recharts", () => ({
+  ResponsiveContainer: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  LineChart: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  CartesianGrid: () => null,
+  Line: () => null,
+  Tooltip: () => null,
+  XAxis: () => null,
+  YAxis: () => null,
+}));
+
 vi.mock("@/lib/perpfut-api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/perpfut-api")>("@/lib/perpfut-api");
   return {
@@ -162,6 +172,106 @@ describe("BacktestsShell", () => {
     expect(screen.getByText("backtest api unavailable")).toBeInTheDocument();
   });
 
+  it("switches leaderboard data when a different suite is selected", async () => {
+    mockedFetchJson.mockImplementation(async (path: string) => {
+      if (path === "/backtests") {
+        return { items: [], count: 0, active_job: null };
+      }
+      if (path === "/backtest-suites") {
+        return {
+          items: [
+            {
+              suite_id: "suite-1",
+              created_at: "2026-03-22T06:00:00Z",
+              dataset_id: "dataset-1",
+              products: ["BTC-PERP-INTX"],
+              strategies: ["momentum"],
+              run_ids: ["run-1"],
+            },
+            {
+              suite_id: "suite-2",
+              created_at: "2026-03-22T07:00:00Z",
+              dataset_id: "dataset-2",
+              products: ["ETH-PERP-INTX"],
+              strategies: ["mean_reversion"],
+              run_ids: ["run-2"],
+            },
+          ],
+          count: 2,
+          active_job: null,
+        };
+      }
+      if (path === "/backtest-suites/suite-1") {
+        return {
+          suite_id: "suite-1",
+          created_at: "2026-03-22T06:00:00Z",
+          dataset_id: "dataset-1",
+          products: ["BTC-PERP-INTX"],
+          strategies: ["momentum"],
+          run_ids: ["run-1"],
+          ranking_policy: "return desc",
+          items: [
+            {
+              rank: 1,
+              run_id: "run-1",
+              strategy_id: "momentum",
+              total_pnl_usdc: 120,
+              total_return_pct: 0.012,
+              max_drawdown_usdc: 40,
+              max_drawdown_pct: 0.004,
+              turnover_usdc: 5000,
+              fill_count: 3,
+              avg_abs_exposure_pct: 0.22,
+              max_abs_exposure_pct: 0.35,
+              decision_counts: { filled: 3 },
+            },
+          ],
+        };
+      }
+      if (path === "/backtest-suites/suite-2") {
+        return {
+          suite_id: "suite-2",
+          created_at: "2026-03-22T07:00:00Z",
+          dataset_id: "dataset-2",
+          products: ["ETH-PERP-INTX"],
+          strategies: ["mean_reversion"],
+          run_ids: ["run-2"],
+          ranking_policy: "return desc",
+          items: [
+            {
+              rank: 1,
+              run_id: "run-2",
+              strategy_id: "mean_reversion",
+              total_pnl_usdc: 80,
+              total_return_pct: 0.008,
+              max_drawdown_usdc: 20,
+              max_drawdown_pct: 0.002,
+              turnover_usdc: 3200,
+              fill_count: 2,
+              avg_abs_exposure_pct: 0.11,
+              max_abs_exposure_pct: 0.2,
+              decision_counts: { filled: 2 },
+            },
+          ],
+        };
+      }
+      throw new Error(`unexpected path ${path}`);
+    });
+
+    renderBacktestsShell();
+
+    expect(await screen.findByRole("link", { name: "momentum" })).toHaveAttribute(
+      "href",
+      "/backtests/run-1"
+    );
+    await userEvent.click(screen.getByRole("button", { name: /suite-2/i }));
+
+    expect(await screen.findByRole("link", { name: "mean_reversion" })).toHaveAttribute(
+      "href",
+      "/backtests/run-2"
+    );
+  });
+
   it("shows a validation warning when a datetime input is cleared", async () => {
     mockedFetchJson.mockImplementation(async (path: string) => {
       if (path === "/backtests") {
@@ -185,11 +295,202 @@ describe("BacktestsShell", () => {
 });
 
 describe("BacktestRunShell", () => {
-  it("renders the backtest run detail shell with a stable route model", () => {
-    render(<BacktestRunShell runId="suite-run-1" />);
+  it("renders backtest analysis, decisions, fills, and per-asset positions", async () => {
+    mockedFetchJson.mockImplementation(async (path: string) => {
+      if (path === "/backtests/suite-run-1") {
+        return {
+          run_id: "suite-run-1",
+          manifest: {
+            run_id: "suite-run-1",
+            suite_id: "suite-1",
+            dataset_id: "dataset-1",
+            strategy_id: "momentum",
+          },
+          state: {
+            cycle_id: "cycle-4",
+            portfolio: {
+              equity_usdc: 10120,
+              gross_notional_usdc: 4200,
+              realized_pnl_usdc: 70,
+              unrealized_pnl_usdc: 50,
+            },
+            asset_positions: {
+              "BTC-PERP-INTX": {
+                quantity: 0.12,
+                entry_price: 100,
+                mark_price: 103,
+                realized_pnl_usdc: 40,
+              },
+            },
+          },
+          analysis: {
+            run_id: "suite-run-1",
+            mode: "backtest",
+            product_id: "MULTI_ASSET",
+            strategy_id: "momentum",
+            started_at: "2026-03-22T02:00:00Z",
+            ended_at: "2026-03-22T02:10:00Z",
+            cycle_count: 12,
+            starting_equity_usdc: 10000,
+            ending_equity_usdc: 10120,
+            realized_pnl_usdc: 70,
+            unrealized_pnl_usdc: 50,
+            total_pnl_usdc: 120,
+            total_return_pct: 0.012,
+            max_drawdown_usdc: 35,
+            max_drawdown_pct: 0.0035,
+            turnover_usdc: 4800,
+            fill_count: 3,
+            trade_count: 3,
+            avg_abs_exposure_pct: 0.22,
+            max_abs_exposure_pct: 0.35,
+            decision_counts: { filled: 3 },
+            equity_series: [{ label: "c1", value: 10000 }, { label: "c12", value: 10120 }],
+            drawdown_series: [{ label: "c1", value: 0 }, { label: "c12", value: 35 }],
+            exposure_series: [{ label: "c1", value: 0.1 }, { label: "c12", value: 0.22 }],
+          },
+        };
+      }
+      if (path === "/backtests/suite-run-1/events?limit=20") {
+        return {
+          run_id: "suite-run-1",
+          count: 1,
+          items: [
+            {
+              cycle_id: "cycle-4",
+              execution_summary: {
+                action: "filled",
+                reason_code: "filled",
+                summary: "Filled one asset toward target.",
+              },
+              asset_decisions: {
+                "BTC-PERP-INTX": {
+                  signal: { target_position: 0.25 },
+                  risk_decision: { delta_notional_usdc: 1500 },
+                  execution_summary: { action: "filled", summary: "Filled BTC rebalance." },
+                },
+              },
+            },
+          ],
+        };
+      }
+      if (path === "/backtests/suite-run-1/fills?limit=20") {
+        return {
+          run_id: "suite-run-1",
+          count: 1,
+          items: [
+            {
+              cycle_id: "cycle-4",
+              product_id: "BTC-PERP-INTX",
+              fill: { side: "BUY", quantity: 0.02, price: 103 },
+            },
+          ],
+        };
+      }
+      if (path === "/backtests/suite-run-1/positions?limit=20") {
+        return {
+          run_id: "suite-run-1",
+          count: 1,
+          items: [
+            {
+              cycle_id: "cycle-4",
+              asset_positions: {
+                "BTC-PERP-INTX": {
+                  quantity: 0.12,
+                  entry_price: 100,
+                  mark_price: 103,
+                  realized_pnl_usdc: 40,
+                },
+              },
+            },
+          ],
+        };
+      }
+      throw new Error(`unexpected path ${path}`);
+    });
 
-    expect(screen.getByText("Run Detail: suite-run-1")).toBeInTheDocument();
+    render(
+      <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+        <BacktestRunShell runId="suite-run-1" />
+      </SWRConfig>
+    );
+
+    expect(await screen.findByText("Canonical backtest analysis")).toBeInTheDocument();
+    expect(screen.getByText("Latest asset decision set")).toBeInTheDocument();
+    expect(screen.getByText("Recent backtest fill tape")).toBeInTheDocument();
+    expect(screen.getByText("Latest per-asset positions")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Back to Backtests/i })).toHaveAttribute("href", "/backtests");
-    expect(screen.getByText("Per-asset inspection")).toBeInTheDocument();
+  });
+
+  it("keeps artifact panels in loading state while secondary requests are still pending", async () => {
+    mockedFetchJson.mockImplementation(async (path: string) => {
+      if (path === "/backtests/suite-run-2") {
+        return {
+          run_id: "suite-run-2",
+          manifest: {
+            run_id: "suite-run-2",
+            suite_id: "suite-2",
+            dataset_id: "dataset-2",
+            strategy_id: "momentum",
+          },
+          state: {
+            cycle_id: "cycle-2",
+            portfolio: {
+              equity_usdc: 10020,
+              gross_notional_usdc: 1200,
+              realized_pnl_usdc: 15,
+              unrealized_pnl_usdc: 5,
+            },
+          },
+          analysis: {
+            run_id: "suite-run-2",
+            mode: "backtest",
+            product_id: "MULTI_ASSET",
+            strategy_id: "momentum",
+            started_at: "2026-03-22T03:00:00Z",
+            ended_at: "2026-03-22T03:05:00Z",
+            cycle_count: 6,
+            starting_equity_usdc: 10000,
+            ending_equity_usdc: 10020,
+            realized_pnl_usdc: 15,
+            unrealized_pnl_usdc: 5,
+            total_pnl_usdc: 20,
+            total_return_pct: 0.002,
+            max_drawdown_usdc: 10,
+            max_drawdown_pct: 0.001,
+            turnover_usdc: 900,
+            fill_count: 1,
+            trade_count: 1,
+            avg_abs_exposure_pct: 0.08,
+            max_abs_exposure_pct: 0.12,
+            decision_counts: { filled: 1 },
+            equity_series: [{ label: "c1", value: 10000 }, { label: "c6", value: 10020 }],
+            drawdown_series: [{ label: "c1", value: 0 }, { label: "c6", value: 10 }],
+            exposure_series: [{ label: "c1", value: 0 }, { label: "c6", value: 0.08 }],
+          },
+        };
+      }
+      if (
+        path === "/backtests/suite-run-2/events?limit=20" ||
+        path === "/backtests/suite-run-2/fills?limit=20" ||
+        path === "/backtests/suite-run-2/positions?limit=20"
+      ) {
+        return new Promise(() => {});
+      }
+      throw new Error(`unexpected path ${path}`);
+    });
+
+    render(
+      <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+        <BacktestRunShell runId="suite-run-2" />
+      </SWRConfig>
+    );
+
+    expect(await screen.findByText("Canonical backtest analysis")).toBeInTheDocument();
+    expect(screen.getByText("Loading the latest asset decision set.")).toBeInTheDocument();
+    expect(screen.getByText("Loading recent backtest fills.")).toBeInTheDocument();
+    expect(screen.getByText("Loading the backtest event stream.")).toBeInTheDocument();
+    expect(screen.queryByText("This backtest run has no recorded fills yet.")).not.toBeInTheDocument();
+    expect(screen.queryByText("No event stream is available for this backtest run.")).not.toBeInTheDocument();
   });
 });
