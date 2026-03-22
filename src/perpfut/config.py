@@ -34,6 +34,7 @@ class StrategyConfig:
 @dataclass(frozen=True, slots=True)
 class RiskConfig:
     max_abs_position: float = 0.5
+    max_gross_position: float = 1.0
     rebalance_threshold: float = 0.10
     min_trade_notional_usdc: float = 10.0
     max_daily_drawdown_usdc: float = 250.0
@@ -91,6 +92,7 @@ class AppConfig:
             ),
             risk=RiskConfig(
                 max_abs_position=_env_float("MAX_ABS_POSITION", 0.5),
+                max_gross_position=_env_float("MAX_GROSS_POSITION", 1.0),
                 rebalance_threshold=_env_float("REBALANCE_THRESHOLD", 0.10),
                 min_trade_notional_usdc=_env_float("MIN_TRADE_NOTIONAL_USDC", 10.0),
                 max_daily_drawdown_usdc=_env_float("MAX_DAILY_DRAWDOWN_USDC", 250.0),

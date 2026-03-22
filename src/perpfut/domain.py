@@ -8,6 +8,7 @@ from enum import StrEnum
 
 
 class Mode(StrEnum):
+    BACKTEST = "backtest"
     PAPER = "paper"
     LIVE = "live"
 

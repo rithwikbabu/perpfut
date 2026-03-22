@@ -32,6 +32,14 @@ class AlignedSnapshotFrame:
     snapshots: dict[str, MarketSnapshot]
 
 
+@dataclass(frozen=True, slots=True)
+class AlignedBacktestStep:
+    timestamp: datetime
+    next_timestamp: datetime
+    snapshots: dict[str, MarketSnapshot]
+    next_open_by_product: dict[str, float]
+
+
 class HistoricalCandleClient(Protocol):
     def fetch_historical_candles(
         self,
@@ -190,6 +198,41 @@ def synthesize_aligned_snapshots(
         if snapshots:
             frames.append(AlignedSnapshotFrame(timestamp=timestamp, snapshots=snapshots))
     return tuple(frames)
+
+
+def synthesize_aligned_backtest_steps(
+    dataset: HistoricalDataset,
+    *,
+    lookback_candles: int,
+) -> tuple[AlignedBacktestStep, ...]:
+    frames = synthesize_aligned_snapshots(dataset, lookback_candles=lookback_candles)
+    if not frames:
+        return ()
+    timestamp_indexes = {
+        product_id: {
+            candle.start: index for index, candle in enumerate(candles)
+        }
+        for product_id, candles in dataset.candles_by_product.items()
+    }
+    steps: list[AlignedBacktestStep] = []
+    for current_frame, next_frame in zip(frames, frames[1:]):
+        if (
+            next_frame.timestamp - current_frame.timestamp
+        ).total_seconds() != GRANULARITY_SECONDS[dataset.granularity]:
+            continue
+        next_open_by_product: dict[str, float] = {}
+        for product_id, candles in dataset.candles_by_product.items():
+            next_candle = candles[timestamp_indexes[product_id][next_frame.timestamp]]
+            next_open_by_product[product_id] = next_candle.open
+        steps.append(
+            AlignedBacktestStep(
+                timestamp=current_frame.timestamp,
+                next_timestamp=next_frame.timestamp,
+                snapshots=current_frame.snapshots,
+                next_open_by_product=next_open_by_product,
+            )
+        )
+    return tuple(steps)
 
 
 def _serialize_candle(candle: Candle) -> dict[str, object]:
