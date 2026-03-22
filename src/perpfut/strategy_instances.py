@@ -161,9 +161,10 @@ def _parse_strategy_params(value: Any, *, index: int, source: str) -> dict[str, 
         if key not in _ALLOWED_STRATEGY_PARAMS:
             allowed = ", ".join(sorted(_ALLOWED_STRATEGY_PARAMS))
             raise ValueError(
-                f"strategy_params for strategy instance '{key}' in {source} must be one of: {allowed}"
+                f"strategy param '{key}' for strategy instance at index {index} in {source} "
+                f"must be one of: {allowed}"
             )
-        if not isinstance(item, (int, float)):
+        if isinstance(item, bool) or not isinstance(item, (int, float)):
             raise ValueError(
                 f"strategy param '{key}' for strategy instance at index {index} in {source} must be numeric"
             )
@@ -188,7 +189,7 @@ def _parse_risk_overrides(value: Any, *, index: int, source: str) -> dict[str, f
             raise ValueError(
                 f"risk override '{key}' in {source} must be one of: {allowed}"
             )
-        if not isinstance(item, (int, float)):
+        if isinstance(item, bool) or not isinstance(item, (int, float)):
             raise ValueError(
                 f"risk override '{key}' for strategy instance at index {index} in {source} must be numeric"
             )

@@ -75,7 +75,7 @@ def test_parse_strategy_instance_specs_rejects_duplicate_instance_ids() -> None:
 
 
 def test_parse_strategy_instance_specs_rejects_unknown_param_keys() -> None:
-    with pytest.raises(ValueError, match="strategy_params"):
+    with pytest.raises(ValueError, match="must be one of"):
         parse_strategy_instance_specs(
             [
                 {
@@ -83,6 +83,31 @@ def test_parse_strategy_instance_specs_rejects_unknown_param_keys() -> None:
                     "strategy_id": "momentum",
                     "universe": ["BTC-PERP-INTX"],
                     "strategy_params": {"window": 5},
+                }
+            ]
+        )
+
+
+def test_parse_strategy_instance_specs_rejects_boolean_numeric_values() -> None:
+    with pytest.raises(ValueError, match="must be numeric"):
+        parse_strategy_instance_specs(
+            [
+                {
+                    "strategy_instance_id": "bool-param",
+                    "strategy_id": "momentum",
+                    "universe": ["BTC-PERP-INTX"],
+                    "strategy_params": {"lookback_candles": True},
+                }
+            ]
+        )
+    with pytest.raises(ValueError, match="must be numeric"):
+        parse_strategy_instance_specs(
+            [
+                {
+                    "strategy_instance_id": "bool-risk",
+                    "strategy_id": "momentum",
+                    "universe": ["BTC-PERP-INTX"],
+                    "risk_overrides": {"max_abs_position": False},
                 }
             ]
         )
