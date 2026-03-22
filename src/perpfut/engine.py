@@ -33,37 +33,25 @@ class MarketDataClient(Protocol):
         ...
 
 
-class PaperEngine:
-    """Coordinates the paper-trading loop."""
+class SnapshotCycleRunner:
+    """Executes trading cycles from supplied market snapshots."""
 
     def __init__(
         self,
         *,
         config: AppConfig,
-        market_data: MarketDataClient,
         artifact_store: ArtifactStore,
+        mode: Mode = Mode.PAPER,
+        initial_state: PositionState | None = None,
     ):
         self.config = config
-        self.market_data = market_data
         self.artifact_store = artifact_store
-        self.state = PositionState(
+        self.mode = mode
+        self.state = initial_state or PositionState(
             collateral_usdc=config.simulation.starting_collateral_usdc,
         )
 
-    def run(self) -> list[CycleResult]:
-        results = []
-        for cycle_number in range(1, self.config.runtime.iterations + 1):
-            result = self.run_cycle(cycle_number)
-            results.append(result)
-            if cycle_number < self.config.runtime.iterations:
-                time.sleep(self.config.runtime.interval_seconds)
-        return results
-
-    def run_cycle(self, cycle_number: int) -> CycleResult:
-        market = self.market_data.fetch_market(
-            self.config.runtime.product_id,
-            candle_limit=self.config.strategy.lookback_candles,
-        )
+    def run_cycle(self, cycle_number: int, market: MarketSnapshot) -> CycleResult:
         marked_state = replace(self.state, mark_price=market.mid_price)
         signal = compute_strategy_signal(
             market.candles,
@@ -139,7 +127,7 @@ class PaperEngine:
 
         cycle_result = CycleResult(
             cycle_id=f"cycle-{cycle_number:04d}",
-            mode=Mode.PAPER,
+            mode=self.mode,
             market=market,
             signal=replace(signal, target_position=target_position),
             risk_decision=risk_decision,
@@ -152,6 +140,48 @@ class PaperEngine:
         self.state = marked_state
         self.artifact_store.record_cycle(cycle_result)
         return cycle_result
+
+
+class PaperEngine:
+    """Coordinates the paper-trading loop."""
+
+    def __init__(
+        self,
+        *,
+        config: AppConfig,
+        market_data: MarketDataClient,
+        artifact_store: ArtifactStore,
+    ):
+        self.config = config
+        self.market_data = market_data
+        self.runner = SnapshotCycleRunner(
+            config=config,
+            artifact_store=artifact_store,
+            mode=Mode.PAPER,
+        )
+
+    def run(self) -> list[CycleResult]:
+        results = []
+        for cycle_number in range(1, self.config.runtime.iterations + 1):
+            result = self.run_cycle(cycle_number)
+            results.append(result)
+            if cycle_number < self.config.runtime.iterations:
+                time.sleep(self.config.runtime.interval_seconds)
+        return results
+
+    def run_cycle(self, cycle_number: int) -> CycleResult:
+        market = self.market_data.fetch_market(
+            self.config.runtime.product_id,
+            candle_limit=self.config.strategy.lookback_candles,
+        )
+        return self.run_market_cycle(cycle_number, market)
+
+    def run_market_cycle(self, cycle_number: int, market: MarketSnapshot) -> CycleResult:
+        return self.runner.run_cycle(cycle_number, market)
+
+    @property
+    def state(self) -> PositionState:
+        return self.runner.state
 
 
 def build_order_plan(
