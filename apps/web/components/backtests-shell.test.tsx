@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SWRConfig } from "swr";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -546,7 +546,7 @@ describe("BacktestsShell", () => {
     expect((await screen.findAllByText("Loading cached datasets.")).length).toBeGreaterThan(0);
     expect(await screen.findByText("Loading completed backtest suites.")).toBeInTheDocument();
     expect(screen.getByText("Loading completed backtest runs.")).toBeInTheDocument();
-    expect(screen.getByText("Loading suite and sleeve rankings.")).toBeInTheDocument();
+    expect(screen.getByText("Select a dataset to inspect suite and sleeve rankings.")).toBeInTheDocument();
   });
 
   it("renders console empty states when there are no suites or runs", async () => {
@@ -575,6 +575,8 @@ describe("BacktestsShell", () => {
     expect(await screen.findByText("No completed backtest suites yet.")).toBeInTheDocument();
     expect(screen.getByText("No strategy sleeves for the selected dataset yet.")).toBeInTheDocument();
     expect(screen.getByText("Selected suite and sleeve rankings")).toBeInTheDocument();
+    expect(screen.getByText("Select a suite to inspect ranking candidates.")).toBeInTheDocument();
+    expect(screen.getByText("No strategy sleeve rankings for the selected dataset yet.")).toBeInTheDocument();
     expect(screen.getByText("No completed backtest runs yet.")).toBeInTheDocument();
   });
 
@@ -685,6 +687,172 @@ describe("BacktestsShell", () => {
     expect((await screen.findAllByText("dataset registry unavailable")).length).toBeGreaterThan(0);
     expect(screen.queryByText("No cached datasets yet.")).not.toBeInTheDocument();
     expect(screen.getByText("No completed backtest suites yet.")).toBeInTheDocument();
+  });
+
+  it("clears stale sleeve attribution when the selected dataset changes", async () => {
+    mockedFetchJson.mockImplementation(async (path: string) => {
+      if (path === "/datasets") {
+        return {
+          items: [
+            {
+              datasetId: "dataset-1",
+              createdAt: "2026-03-22T05:00:00Z",
+              fingerprint: "fingerprint-123456",
+              source: "coinbase",
+              version: "1",
+              products: ["BTC-PERP-INTX"],
+              start: "2026-03-20T12:00:00+00:00",
+              end: "2026-03-21T12:00:00+00:00",
+              granularity: "ONE_MINUTE",
+              candleCounts: { "BTC-PERP-INTX": 1440 },
+            },
+            {
+              datasetId: "dataset-2",
+              createdAt: "2026-03-22T06:00:00Z",
+              fingerprint: "fingerprint-654321",
+              source: "coinbase",
+              version: "1",
+              products: ["ETH-PERP-INTX"],
+              start: "2026-03-18T12:00:00+00:00",
+              end: "2026-03-19T12:00:00+00:00",
+              granularity: "ONE_MINUTE",
+              candleCounts: { "ETH-PERP-INTX": 1440 },
+            },
+          ],
+          count: 2,
+        };
+      }
+      if (path === "/backtests") {
+        return { items: [], count: 0, active_job: null, latest_job: null };
+      }
+      if (path === "/backtest-suites") {
+        return { items: [], count: 0, active_job: null, latest_job: null };
+      }
+      if (path === "/sleeves") {
+        return defaultSleeveListResponse;
+      }
+      if (path === "/sleeves?datasetId=dataset-1") {
+        return defaultSleeveListResponse;
+      }
+      if (path === "/sleeves?datasetId=dataset-2") {
+        return { items: [], count: 0 };
+      }
+      if (path === "/sleeve-comparisons") {
+        return defaultSleeveComparisonResponse;
+      }
+      if (path === "/sleeve-comparisons?datasetId=dataset-1") {
+        return defaultSleeveComparisonResponse;
+      }
+      if (path === "/sleeve-comparisons?datasetId=dataset-2") {
+        return { dataset_id: "dataset-2", ranking_policy: "rank by total_return_pct desc", items: [] };
+      }
+      if (path === "/sleeves/sleeve-run-1") {
+        return defaultSleeveDetailResponse;
+      }
+      throw new Error(`unexpected path ${path}`);
+    });
+
+    renderBacktestsShell();
+
+    expect(await screen.findByText("Selected sleeve attribution")).toBeInTheDocument();
+    expect(await screen.findByText("ETH-PERP-INTX")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /dataset-2/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText("Select a sleeve to inspect attribution and daily metrics.")).toBeInTheDocument()
+    );
+    const attributionPanel = screen
+      .getByText("Selected sleeve attribution")
+      .closest("section");
+    expect(attributionPanel).not.toBeNull();
+    expect(within(attributionPanel as HTMLElement).queryByRole("cell", { name: "ETH-PERP-INTX" })).not.toBeInTheDocument();
+  });
+
+  it("keeps suite rankings visible when sleeve comparisons fail", async () => {
+    mockedFetchJson.mockImplementation(async (path: string) => {
+      if (path === "/datasets") {
+        return {
+          items: [
+            {
+              datasetId: "dataset-1",
+              createdAt: "2026-03-22T05:00:00Z",
+              fingerprint: "fingerprint-123456",
+              source: "coinbase",
+              version: "1",
+              products: ["BTC-PERP-INTX"],
+              start: "2026-03-20T12:00:00+00:00",
+              end: "2026-03-21T12:00:00+00:00",
+              granularity: "ONE_MINUTE",
+              candleCounts: { "BTC-PERP-INTX": 1440 },
+            },
+          ],
+          count: 1,
+        };
+      }
+      if (path === "/backtests") {
+        return { items: [], count: 0, active_job: null, latest_job: null };
+      }
+      if (path === "/backtest-suites") {
+        return {
+          items: [
+            {
+              suite_id: "suite-1",
+              created_at: "2026-03-22T06:00:00Z",
+              dataset_id: "dataset-1",
+              products: ["BTC-PERP-INTX"],
+              strategies: ["momentum"],
+              run_ids: ["run-1"],
+            },
+          ],
+          count: 1,
+          active_job: null,
+          latest_job: null,
+        };
+      }
+      if (path === "/backtest-suites/suite-1") {
+        return {
+          suite_id: "suite-1",
+          created_at: "2026-03-22T06:00:00Z",
+          dataset_id: "dataset-1",
+          products: ["BTC-PERP-INTX"],
+          strategies: ["momentum"],
+          run_ids: ["run-1"],
+          ranking_policy: "return desc",
+          items: [
+            {
+              rank: 1,
+              run_id: "run-1",
+              strategy_id: "momentum",
+              total_pnl_usdc: 120,
+              total_return_pct: 0.012,
+              max_drawdown_usdc: 40,
+              max_drawdown_pct: 0.004,
+              turnover_usdc: 5000,
+              fill_count: 3,
+              avg_abs_exposure_pct: 0.22,
+              max_abs_exposure_pct: 0.35,
+              decision_counts: { filled: 3 },
+            },
+          ],
+        };
+      }
+      if (path === "/sleeves" || path === "/sleeves?datasetId=dataset-1") {
+        return defaultSleeveListResponse;
+      }
+      if (path === "/sleeve-comparisons" || path === "/sleeve-comparisons?datasetId=dataset-1") {
+        throw new ApiError("sleeve comparison unavailable", 500);
+      }
+      if (path === "/sleeves/sleeve-run-1") {
+        return defaultSleeveDetailResponse;
+      }
+      throw new Error(`unexpected path ${path}`);
+    });
+
+    renderBacktestsShell();
+
+    expect(await screen.findByRole("link", { name: "momentum" })).toHaveAttribute("href", "/backtests/run-1");
+    expect(await screen.findByText("sleeve comparison unavailable")).toBeInTheDocument();
   });
 });
 

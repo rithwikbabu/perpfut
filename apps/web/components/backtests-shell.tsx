@@ -342,6 +342,10 @@ export function BacktestsShell() {
   }, [selectedSuiteId, suites.data]);
 
   useEffect(() => {
+    setSelectedSleeveRunId(null);
+  }, [selectedDatasetId]);
+
+  useEffect(() => {
     const nextSleeveRunId = sleeves.data?.items[0]?.run_id ?? null;
     if (!selectedSleeveRunId && nextSleeveRunId) {
       setSelectedSleeveRunId(nextSleeveRunId);
@@ -908,78 +912,94 @@ export function BacktestsShell() {
                 title="Selected suite and sleeve rankings"
                 action={selectedSuite.data?.ranking_policy ?? sleeveComparison.data?.ranking_policy ?? "awaiting rankings"}
               />
-              {selectedSuite.isLoading || sleeveComparison.isLoading ? (
+              {selectedSuite.isLoading && !selectedSuite.data && sleeveComparison.isLoading && !sleeveComparison.data ? (
                 <LoadingBlock title="Loading suite and sleeve rankings." />
-              ) : selectedSuite.error || sleeveComparison.error ? (
-                <ErrorBlock message={(selectedSuite.error ?? sleeveComparison.error)?.message ?? "ranking unavailable"} />
-              ) : selectedSuite.data || sleeveComparison.data ? (
+              ) : selectedSuite.data || sleeveComparison.data || selectedSuite.error || sleeveComparison.error ? (
                 <div className="space-y-4">
-                  {selectedSuite.data ? (
-                    <div className="overflow-x-auto border border-[var(--border)] bg-[var(--bg-elevated)]">
-                      <table className="min-w-full text-left text-sm">
-                        <thead className="border-b border-[var(--border)] text-[var(--muted)]">
-                          <tr>
-                            <th className="px-4 py-3 font-medium">Rank</th>
-                            <th className="px-4 py-3 font-medium">Strategy</th>
-                            <th className="px-4 py-3 font-medium">Date Range</th>
-                            <th className="px-4 py-3 font-medium">Sharpe</th>
-                            <th className="px-4 py-3 font-medium">Return</th>
-                            <th className="px-4 py-3 font-medium">P&amp;L</th>
-                            <th className="px-4 py-3 font-medium">Drawdown</th>
-                            <th className="px-4 py-3 font-medium">Turns</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {selectedSuite.data.items.map((item) => (
-                            <tr key={item.run_id} className="border-b border-[var(--border)] last:border-b-0">
-                              <td className="px-4 py-3 text-[var(--text)]">{item.rank}</td>
-                              <td className="px-4 py-3 text-[var(--text)]">
-                                <Link href={`/backtests/${item.run_id}`} className="underline decoration-[var(--border)] underline-offset-4">
-                                  {item.strategy_id ?? item.run_id}
-                                </Link>
-                              </td>
-                              <td className="px-4 py-3 text-[var(--muted)]">{formatDateRange(item.date_range_start, item.date_range_end)}</td>
-                              <td className="px-4 py-3 text-[var(--text)]">{formatSharpe(item.sharpe_ratio)}</td>
-                              <td className="px-4 py-3 text-[var(--accent)]">{formatSignedPercent(item.total_return_pct)}</td>
-                              <td className="px-4 py-3 text-[var(--text)]">{formatMoney(item.total_pnl_usdc)}</td>
-                              <td className="px-4 py-3 text-[var(--warning)]">{formatPercent(item.max_drawdown_pct)}</td>
-                              <td className="px-4 py-3 text-[var(--muted)]">{formatCount(item.fill_count)}</td>
+                  <div className="space-y-2">
+                    <div className="mono text-[10px] uppercase tracking-[0.24em] text-[var(--muted)]">Suite ranking</div>
+                    {selectedSuite.error ? (
+                      <ErrorBlock message={selectedSuite.error.message} />
+                    ) : selectedSuite.isLoading && !selectedSuite.data ? (
+                      <LoadingBlock title="Loading suite rankings." />
+                    ) : selectedSuite.data ? (
+                      <div className="overflow-x-auto border border-[var(--border)] bg-[var(--bg-elevated)]">
+                        <table className="min-w-full text-left text-sm">
+                          <thead className="border-b border-[var(--border)] text-[var(--muted)]">
+                            <tr>
+                              <th className="px-4 py-3 font-medium">Rank</th>
+                              <th className="px-4 py-3 font-medium">Strategy</th>
+                              <th className="px-4 py-3 font-medium">Date Range</th>
+                              <th className="px-4 py-3 font-medium">Sharpe</th>
+                              <th className="px-4 py-3 font-medium">Return</th>
+                              <th className="px-4 py-3 font-medium">P&amp;L</th>
+                              <th className="px-4 py-3 font-medium">Drawdown</th>
+                              <th className="px-4 py-3 font-medium">Turns</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : null}
-                  {sleeveComparison.data ? (
-                    <div className="overflow-x-auto border border-[var(--border)] bg-[var(--bg-elevated)]">
-                      <table className="min-w-full text-left text-sm">
-                        <thead className="border-b border-[var(--border)] text-[var(--muted)]">
-                          <tr>
-                            <th className="px-4 py-3 font-medium">Sleeve Rank</th>
-                            <th className="px-4 py-3 font-medium">Instance</th>
-                            <th className="px-4 py-3 font-medium">Return</th>
-                            <th className="px-4 py-3 font-medium">P&amp;L</th>
-                            <th className="px-4 py-3 font-medium">Drawdown</th>
-                            <th className="px-4 py-3 font-medium">Exposure</th>
-                            <th className="px-4 py-3 font-medium">Turnover</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {sleeveComparison.data.items.map((item) => (
-                            <tr key={item.run_id} className="border-b border-[var(--border)] last:border-b-0">
-                              <td className="px-4 py-3 text-[var(--text)]">{item.rank}</td>
-                              <td className="px-4 py-3 text-[var(--text)]">{item.strategy_instance_id ?? item.run_id}</td>
-                              <td className="px-4 py-3 text-[var(--accent)]">{formatSignedPercent(item.total_return_pct)}</td>
-                              <td className="px-4 py-3 text-[var(--text)]">{formatMoney(item.total_pnl_usdc)}</td>
-                              <td className="px-4 py-3 text-[var(--warning)]">{formatPercent(item.max_drawdown_pct)}</td>
-                              <td className="px-4 py-3 text-[var(--text)]">{formatPercent(item.avg_abs_exposure_pct)}</td>
-                              <td className="px-4 py-3 text-[var(--muted)]">{formatMoney(item.turnover_usdc)}</td>
+                          </thead>
+                          <tbody>
+                            {selectedSuite.data.items.map((item) => (
+                              <tr key={item.run_id} className="border-b border-[var(--border)] last:border-b-0">
+                                <td className="px-4 py-3 text-[var(--text)]">{item.rank}</td>
+                                <td className="px-4 py-3 text-[var(--text)]">
+                                  <Link href={`/backtests/${item.run_id}`} className="underline decoration-[var(--border)] underline-offset-4">
+                                    {item.strategy_id ?? item.run_id}
+                                  </Link>
+                                </td>
+                                <td className="px-4 py-3 text-[var(--muted)]">{formatDateRange(item.date_range_start, item.date_range_end)}</td>
+                                <td className="px-4 py-3 text-[var(--text)]">{formatSharpe(item.sharpe_ratio)}</td>
+                                <td className="px-4 py-3 text-[var(--accent)]">{formatSignedPercent(item.total_return_pct)}</td>
+                                <td className="px-4 py-3 text-[var(--text)]">{formatMoney(item.total_pnl_usdc)}</td>
+                                <td className="px-4 py-3 text-[var(--warning)]">{formatPercent(item.max_drawdown_pct)}</td>
+                                <td className="px-4 py-3 text-[var(--muted)]">{formatCount(item.fill_count)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <LoadingBlock title="Select a suite to inspect ranking candidates." />
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <div className="mono text-[10px] uppercase tracking-[0.24em] text-[var(--muted)]">Sleeve ranking</div>
+                    {sleeveComparison.error ? (
+                      <ErrorBlock message={sleeveComparison.error.message} />
+                    ) : sleeveComparison.isLoading && !sleeveComparison.data ? (
+                      <LoadingBlock title="Loading sleeve rankings." />
+                    ) : sleeveComparison.data && sleeveComparison.data.items.length > 0 ? (
+                      <div className="overflow-x-auto border border-[var(--border)] bg-[var(--bg-elevated)]">
+                        <table className="min-w-full text-left text-sm">
+                          <thead className="border-b border-[var(--border)] text-[var(--muted)]">
+                            <tr>
+                              <th className="px-4 py-3 font-medium">Sleeve Rank</th>
+                              <th className="px-4 py-3 font-medium">Instance</th>
+                              <th className="px-4 py-3 font-medium">Return</th>
+                              <th className="px-4 py-3 font-medium">P&amp;L</th>
+                              <th className="px-4 py-3 font-medium">Drawdown</th>
+                              <th className="px-4 py-3 font-medium">Exposure</th>
+                              <th className="px-4 py-3 font-medium">Turnover</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : null}
+                          </thead>
+                          <tbody>
+                            {sleeveComparison.data.items.map((item) => (
+                              <tr key={item.run_id} className="border-b border-[var(--border)] last:border-b-0">
+                                <td className="px-4 py-3 text-[var(--text)]">{item.rank}</td>
+                                <td className="px-4 py-3 text-[var(--text)]">{item.strategy_instance_id ?? item.run_id}</td>
+                                <td className="px-4 py-3 text-[var(--accent)]">{formatSignedPercent(item.total_return_pct)}</td>
+                                <td className="px-4 py-3 text-[var(--text)]">{formatMoney(item.total_pnl_usdc)}</td>
+                                <td className="px-4 py-3 text-[var(--warning)]">{formatPercent(item.max_drawdown_pct)}</td>
+                                <td className="px-4 py-3 text-[var(--text)]">{formatPercent(item.avg_abs_exposure_pct)}</td>
+                                <td className="px-4 py-3 text-[var(--muted)]">{formatMoney(item.turnover_usdc)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <LoadingBlock title="No strategy sleeve rankings for the selected dataset yet." />
+                    )}
+                  </div>
                 </div>
               ) : (
                 <LoadingBlock title="Select a dataset to inspect suite and sleeve rankings." />
