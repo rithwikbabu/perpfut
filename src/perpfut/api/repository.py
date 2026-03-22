@@ -16,6 +16,7 @@ from ..backtest_history import (
 )
 from ..backtest_data import list_dataset_summaries, load_dataset_summary
 from ..portfolio_history import compare_portfolio_runs, list_portfolio_runs, load_portfolio_run
+from ..sleeve_history import compare_strategy_sleeves, list_strategy_sleeves, load_strategy_sleeve
 from pydantic import ValidationError
 from .schemas import (
     AnalysisSeriesPointResponse,
@@ -44,6 +45,11 @@ from .schemas import (
     RunSummaryResponse,
     RunsListResponse,
     SignalDecisionResponse,
+    StrategySleeveComparisonItemResponse,
+    StrategySleeveComparisonResponse,
+    StrategySleeveDetailResponse,
+    StrategySleeveSummaryResponse,
+    StrategySleevesListResponse,
 )
 from ..config import AppConfig
 from ..run_history import list_runs, load_run_manifest, load_run_state
@@ -322,6 +328,83 @@ def load_portfolio_run_comparison(
                 avg_gross_weight=item.avg_gross_weight,
                 max_gross_weight=item.max_gross_weight,
                 strategy_instance_ids=list(item.strategy_instance_ids),
+            )
+            for item in comparison.items
+        ],
+    )
+
+
+def list_strategy_sleeve_summaries(
+    *,
+    limit: int = 10,
+    dataset_id: str | None = None,
+) -> StrategySleevesListResponse:
+    items = [
+        StrategySleeveSummaryResponse(
+            run_id=item.run_id,
+            created_at=item.created_at,
+            dataset_id=item.dataset_id,
+            strategy_instance_id=item.strategy_instance_id,
+            strategy_id=item.strategy_id,
+            date_range_start=item.date_range_start,
+            date_range_end=item.date_range_end,
+            total_pnl_usdc=item.total_pnl_usdc,
+            total_return_pct=item.total_return_pct,
+            max_drawdown_usdc=item.max_drawdown_usdc,
+            max_drawdown_pct=item.max_drawdown_pct,
+            avg_abs_exposure_pct=item.avg_abs_exposure_pct,
+            turnover_usdc=item.turnover_usdc,
+        )
+        for item in list_strategy_sleeves(get_runs_dir(), limit=limit, dataset_id=dataset_id)
+    ]
+    return StrategySleevesListResponse(items=items, count=len(items))
+
+
+def load_strategy_sleeve_detail(run_id: str) -> StrategySleeveDetailResponse:
+    payload = load_strategy_sleeve(get_runs_dir(), run_id=run_id)
+    manifest = payload.get("manifest")
+    state = payload.get("state")
+    analysis_payload = payload.get("analysis")
+    sleeve_analysis = payload.get("sleeve_analysis")
+    if not isinstance(manifest, dict) or not isinstance(state, dict) or not isinstance(analysis_payload, dict) or not isinstance(sleeve_analysis, dict):
+        raise ArtifactError(f"invalid strategy sleeve artifacts for: {run_id}")
+    try:
+        return StrategySleeveDetailResponse(
+            run_id=run_id,
+            manifest=manifest,
+            state=state,
+            analysis=RunAnalysisResponse.model_validate(analysis_payload),
+            sleeve_analysis=sleeve_analysis,
+        )
+    except ValidationError as exc:
+        raise ArtifactError(f"invalid strategy sleeve artifacts for: {run_id}") from exc
+
+
+def load_strategy_sleeve_comparison(
+    *,
+    limit: int = 10,
+    dataset_id: str | None = None,
+) -> StrategySleeveComparisonResponse:
+    comparison = compare_strategy_sleeves(get_runs_dir(), limit=limit, dataset_id=dataset_id)
+    return StrategySleeveComparisonResponse(
+        dataset_id=comparison.dataset_id,
+        ranking_policy=comparison.ranking_policy,
+        items=[
+            StrategySleeveComparisonItemResponse(
+                rank=item.rank,
+                run_id=item.run_id,
+                dataset_id=item.dataset_id,
+                strategy_instance_id=item.strategy_instance_id,
+                strategy_id=item.strategy_id,
+                date_range_start=item.date_range_start,
+                date_range_end=item.date_range_end,
+                total_pnl_usdc=item.total_pnl_usdc,
+                total_return_pct=item.total_return_pct,
+                max_drawdown_usdc=item.max_drawdown_usdc,
+                max_drawdown_pct=item.max_drawdown_pct,
+                avg_abs_exposure_pct=item.avg_abs_exposure_pct,
+                turnover_usdc=item.turnover_usdc,
+                asset_contribution_totals=item.asset_contribution_totals,
             )
             for item in comparison.items
         ],

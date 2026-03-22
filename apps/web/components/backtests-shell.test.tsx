@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SWRConfig } from "swr";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -51,6 +51,101 @@ function renderBacktestRunShell(runId: string) {
     </SWRConfig>
   );
 }
+
+const defaultSleeveListResponse = {
+  items: [
+    {
+      run_id: "sleeve-run-1",
+      created_at: "2026-03-22T05:30:00Z",
+      dataset_id: "dataset-1",
+      strategy_instance_id: "mom-fast",
+      strategy_id: "momentum",
+      date_range_start: "2026-03-20T12:00:00+00:00",
+      date_range_end: "2026-03-21T12:00:00+00:00",
+      total_pnl_usdc: 140,
+      total_return_pct: 0.014,
+      max_drawdown_usdc: 35,
+      max_drawdown_pct: 0.0035,
+      avg_abs_exposure_pct: 0.21,
+      turnover_usdc: 2800,
+    },
+  ],
+  count: 1,
+};
+
+const defaultSleeveComparisonResponse = {
+  dataset_id: "dataset-1",
+  ranking_policy: "rank by total_return_pct desc",
+  items: [
+    {
+      rank: 1,
+      run_id: "sleeve-run-1",
+      dataset_id: "dataset-1",
+      strategy_instance_id: "mom-fast",
+      strategy_id: "momentum",
+      date_range_start: "2026-03-20T12:00:00+00:00",
+      date_range_end: "2026-03-21T12:00:00+00:00",
+      total_pnl_usdc: 140,
+      total_return_pct: 0.014,
+      max_drawdown_usdc: 35,
+      max_drawdown_pct: 0.0035,
+      avg_abs_exposure_pct: 0.21,
+      turnover_usdc: 2800,
+      asset_contribution_totals: {
+        "BTC-PERP-INTX": 90,
+        "ETH-PERP-INTX": 50,
+      },
+    },
+  ],
+};
+
+const defaultSleeveDetailResponse = {
+  run_id: "sleeve-run-1",
+  manifest: {
+    run_id: "sleeve-run-1",
+    strategy_instance_id: "mom-fast",
+    dataset_id: "dataset-1",
+  },
+  state: {
+    run_id: "sleeve-run-1",
+    ending_equity_usdc: 10140,
+  },
+  analysis: {
+    run_id: "sleeve-run-1",
+    mode: "backtest",
+    product_id: "MULTI_ASSET",
+    strategy_id: "momentum",
+    started_at: "2026-03-22T02:00:00Z",
+    ended_at: "2026-03-22T02:10:00Z",
+    date_range_start: "2026-03-20T12:00:00+00:00",
+    date_range_end: "2026-03-21T12:00:00+00:00",
+    sharpe_ratio: 1.33,
+    cycle_count: 12,
+    starting_equity_usdc: 10000,
+    ending_equity_usdc: 10140,
+    realized_pnl_usdc: 90,
+    unrealized_pnl_usdc: 50,
+    total_pnl_usdc: 140,
+    total_return_pct: 0.014,
+    max_drawdown_usdc: 35,
+    max_drawdown_pct: 0.0035,
+    turnover_usdc: 2800,
+    fill_count: 3,
+    trade_count: 3,
+    avg_abs_exposure_pct: 0.21,
+    max_abs_exposure_pct: 0.28,
+    decision_counts: { filled: 3 },
+    equity_series: [{ label: "c1", value: 10000 }, { label: "c12", value: 10140 }],
+    drawdown_series: [{ label: "c1", value: 0 }, { label: "c12", value: 35 }],
+    exposure_series: [{ label: "c1", value: 0.1 }, { label: "c12", value: 0.21 }],
+  },
+  sleeve_analysis: {
+    asset_contributions: [
+      { product_id: "BTC-PERP-INTX", total_pnl_usdc: 90 },
+      { product_id: "ETH-PERP-INTX", total_pnl_usdc: 50 },
+    ],
+  },
+};
 
 describe("BacktestsShell", () => {
   beforeEach(() => {
@@ -194,6 +289,15 @@ describe("BacktestsShell", () => {
           ],
         };
       }
+      if (path === "/sleeves" || path === "/sleeves?datasetId=dataset-1") {
+        return defaultSleeveListResponse;
+      }
+      if (path === "/sleeve-comparisons" || path === "/sleeve-comparisons?datasetId=dataset-1") {
+        return defaultSleeveComparisonResponse;
+      }
+      if (path === "/sleeves/sleeve-run-1") {
+        return defaultSleeveDetailResponse;
+      }
       throw new Error(`unexpected path ${path}`);
     });
     mockedStartBacktest.mockResolvedValue({
@@ -239,11 +343,15 @@ describe("BacktestsShell", () => {
     expect(screen.getAllByText("dataset-1").length).toBeGreaterThan(0);
     expect(screen.queryByText("No cached datasets yet.")).not.toBeInTheDocument();
     expect(screen.getByText("selected")).toBeInTheDocument();
-    expect(screen.getByText("Selected suite ranking")).toBeInTheDocument();
+    expect(screen.getByText("Strategy sleeve runs")).toBeInTheDocument();
+    expect(screen.getByText("Selected suite and sleeve rankings")).toBeInTheDocument();
+    expect(screen.getByText("Selected sleeve attribution")).toBeInTheDocument();
     expect(screen.getByText("Completed backtest runs")).toBeInTheDocument();
     expect((await screen.findAllByText("Completed strategy 1 of 2: momentum")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("1.87").length).toBeGreaterThan(0);
     expect(screen.getByRole("link", { name: "run-2" })).toHaveAttribute("href", "/backtests/run-2");
+    expect(screen.getAllByText("mom-fast").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("BTC-PERP-INTX").length).toBeGreaterThan(0);
 
     await userEvent.click(screen.getByRole("button", { name: "SOL-PERP-INTX" }));
     await userEvent.click(screen.getByRole("button", { name: "Launch Backtest Suite" }));
@@ -363,6 +471,15 @@ describe("BacktestsShell", () => {
           ],
         };
       }
+      if (path === "/sleeves" || path === "/sleeves?datasetId=dataset-1") {
+        return defaultSleeveListResponse;
+      }
+      if (path === "/sleeve-comparisons" || path === "/sleeve-comparisons?datasetId=dataset-1") {
+        return defaultSleeveComparisonResponse;
+      }
+      if (path === "/sleeves/sleeve-run-1") {
+        return defaultSleeveDetailResponse;
+      }
       throw new Error(`unexpected path ${path}`);
     });
 
@@ -391,6 +508,12 @@ describe("BacktestsShell", () => {
       if (path === "/backtest-suites") {
         return { items: [], count: 0, active_job: null };
       }
+      if (path === "/sleeves") {
+        return { items: [], count: 0 };
+      }
+      if (path === "/sleeve-comparisons") {
+        return { dataset_id: null, ranking_policy: "rank by total_return_pct desc", items: [] };
+      }
       throw new Error(`unexpected path ${path}`);
     });
 
@@ -406,7 +529,13 @@ describe("BacktestsShell", () => {
 
   it("renders console loading states while list endpoints are pending", async () => {
     mockedFetchJson.mockImplementation(async (path: string) => {
-      if (path === "/backtests" || path === "/backtest-suites" || path === "/datasets") {
+      if (
+        path === "/backtests" ||
+        path === "/backtest-suites" ||
+        path === "/datasets" ||
+        path === "/sleeves" ||
+        path === "/sleeve-comparisons"
+      ) {
         return new Promise(() => {});
       }
       throw new Error(`unexpected path ${path}`);
@@ -417,7 +546,7 @@ describe("BacktestsShell", () => {
     expect((await screen.findAllByText("Loading cached datasets.")).length).toBeGreaterThan(0);
     expect(await screen.findByText("Loading completed backtest suites.")).toBeInTheDocument();
     expect(screen.getByText("Loading completed backtest runs.")).toBeInTheDocument();
-    expect(screen.getByText("Select a suite to rank strategy candidates.")).toBeInTheDocument();
+    expect(screen.getByText("Select a dataset to inspect suite and sleeve rankings.")).toBeInTheDocument();
   });
 
   it("renders console empty states when there are no suites or runs", async () => {
@@ -431,6 +560,12 @@ describe("BacktestsShell", () => {
       if (path === "/backtest-suites") {
         return { items: [], count: 0, active_job: null };
       }
+      if (path === "/sleeves") {
+        return { items: [], count: 0 };
+      }
+      if (path === "/sleeve-comparisons") {
+        return { dataset_id: null, ranking_policy: "rank by total_return_pct desc", items: [] };
+      }
       throw new Error(`unexpected path ${path}`);
     });
 
@@ -438,7 +573,10 @@ describe("BacktestsShell", () => {
 
     expect((await screen.findAllByText("No cached datasets yet.")).length).toBeGreaterThan(0);
     expect(await screen.findByText("No completed backtest suites yet.")).toBeInTheDocument();
-    expect(screen.getByText("Select a suite to rank strategy candidates.")).toBeInTheDocument();
+    expect(screen.getByText("No strategy sleeves for the selected dataset yet.")).toBeInTheDocument();
+    expect(screen.getByText("Selected suite and sleeve rankings")).toBeInTheDocument();
+    expect(screen.getByText("Select a suite to inspect ranking candidates.")).toBeInTheDocument();
+    expect(screen.getByText("No strategy sleeve rankings for the selected dataset yet.")).toBeInTheDocument();
     expect(screen.getByText("No completed backtest runs yet.")).toBeInTheDocument();
   });
 
@@ -452,6 +590,12 @@ describe("BacktestsShell", () => {
       }
       if (path === "/backtest-suites") {
         return { items: [], count: 0, active_job: null };
+      }
+      if (path === "/sleeves") {
+        return { items: [], count: 0 };
+      }
+      if (path === "/sleeve-comparisons") {
+        return { dataset_id: null, ranking_policy: "rank by total_return_pct desc", items: [] };
       }
       throw new Error(`unexpected path ${path}`);
     });
@@ -529,6 +673,12 @@ describe("BacktestsShell", () => {
       if (path === "/backtest-suites") {
         return { items: [], count: 0, active_job: null, latest_job: null };
       }
+      if (path === "/sleeves") {
+        return { items: [], count: 0 };
+      }
+      if (path === "/sleeve-comparisons") {
+        return { dataset_id: null, ranking_policy: "rank by total_return_pct desc", items: [] };
+      }
       throw new Error(`unexpected path ${path}`);
     });
 
@@ -537,6 +687,174 @@ describe("BacktestsShell", () => {
     expect((await screen.findAllByText("dataset registry unavailable")).length).toBeGreaterThan(0);
     expect(screen.queryByText("No cached datasets yet.")).not.toBeInTheDocument();
     expect(screen.getByText("No completed backtest suites yet.")).toBeInTheDocument();
+  });
+
+  it("clears stale sleeve attribution when the selected dataset changes", async () => {
+    mockedFetchJson.mockImplementation(async (path: string) => {
+      if (path === "/datasets") {
+        return {
+          items: [
+            {
+              datasetId: "dataset-1",
+              createdAt: "2026-03-22T05:00:00Z",
+              fingerprint: "fingerprint-123456",
+              source: "coinbase",
+              version: "1",
+              products: ["BTC-PERP-INTX"],
+              start: "2026-03-20T12:00:00+00:00",
+              end: "2026-03-21T12:00:00+00:00",
+              granularity: "ONE_MINUTE",
+              candleCounts: { "BTC-PERP-INTX": 1440 },
+            },
+            {
+              datasetId: "dataset-2",
+              createdAt: "2026-03-22T06:00:00Z",
+              fingerprint: "fingerprint-654321",
+              source: "coinbase",
+              version: "1",
+              products: ["ETH-PERP-INTX"],
+              start: "2026-03-18T12:00:00+00:00",
+              end: "2026-03-19T12:00:00+00:00",
+              granularity: "ONE_MINUTE",
+              candleCounts: { "ETH-PERP-INTX": 1440 },
+            },
+          ],
+          count: 2,
+        };
+      }
+      if (path === "/backtests") {
+        return { items: [], count: 0, active_job: null, latest_job: null };
+      }
+      if (path === "/backtest-suites") {
+        return { items: [], count: 0, active_job: null, latest_job: null };
+      }
+      if (path === "/sleeves") {
+        return defaultSleeveListResponse;
+      }
+      if (path === "/sleeves?datasetId=dataset-1") {
+        return defaultSleeveListResponse;
+      }
+      if (path === "/sleeves?datasetId=dataset-2") {
+        return { items: [], count: 0 };
+      }
+      if (path === "/sleeve-comparisons") {
+        return defaultSleeveComparisonResponse;
+      }
+      if (path === "/sleeve-comparisons?datasetId=dataset-1") {
+        return defaultSleeveComparisonResponse;
+      }
+      if (path === "/sleeve-comparisons?datasetId=dataset-2") {
+        return { dataset_id: "dataset-2", ranking_policy: "rank by total_return_pct desc", items: [] };
+      }
+      if (path === "/sleeves/sleeve-run-1") {
+        return defaultSleeveDetailResponse;
+      }
+      throw new Error(`unexpected path ${path}`);
+    });
+
+    renderBacktestsShell();
+
+    expect(await screen.findByText("Selected sleeve attribution")).toBeInTheDocument();
+    expect(await screen.findByText("ETH-PERP-INTX")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /dataset-2/i }));
+
+    const attributionPanel = screen
+      .getByText("Selected sleeve attribution")
+      .closest("section");
+    expect(attributionPanel).not.toBeNull();
+    expect(within(attributionPanel as HTMLElement).queryByRole("cell", { name: "ETH-PERP-INTX" })).not.toBeInTheDocument();
+
+    await waitFor(() =>
+      expect(screen.getByText("Select a sleeve to inspect attribution and daily metrics.")).toBeInTheDocument()
+    );
+    expect(within(attributionPanel as HTMLElement).queryByRole("cell", { name: "ETH-PERP-INTX" })).not.toBeInTheDocument();
+  });
+
+  it("keeps suite rankings visible when sleeve comparisons fail", async () => {
+    mockedFetchJson.mockImplementation(async (path: string) => {
+      if (path === "/datasets") {
+        return {
+          items: [
+            {
+              datasetId: "dataset-1",
+              createdAt: "2026-03-22T05:00:00Z",
+              fingerprint: "fingerprint-123456",
+              source: "coinbase",
+              version: "1",
+              products: ["BTC-PERP-INTX"],
+              start: "2026-03-20T12:00:00+00:00",
+              end: "2026-03-21T12:00:00+00:00",
+              granularity: "ONE_MINUTE",
+              candleCounts: { "BTC-PERP-INTX": 1440 },
+            },
+          ],
+          count: 1,
+        };
+      }
+      if (path === "/backtests") {
+        return { items: [], count: 0, active_job: null, latest_job: null };
+      }
+      if (path === "/backtest-suites") {
+        return {
+          items: [
+            {
+              suite_id: "suite-1",
+              created_at: "2026-03-22T06:00:00Z",
+              dataset_id: "dataset-1",
+              products: ["BTC-PERP-INTX"],
+              strategies: ["momentum"],
+              run_ids: ["run-1"],
+            },
+          ],
+          count: 1,
+          active_job: null,
+          latest_job: null,
+        };
+      }
+      if (path === "/backtest-suites/suite-1") {
+        return {
+          suite_id: "suite-1",
+          created_at: "2026-03-22T06:00:00Z",
+          dataset_id: "dataset-1",
+          products: ["BTC-PERP-INTX"],
+          strategies: ["momentum"],
+          run_ids: ["run-1"],
+          ranking_policy: "return desc",
+          items: [
+            {
+              rank: 1,
+              run_id: "run-1",
+              strategy_id: "momentum",
+              total_pnl_usdc: 120,
+              total_return_pct: 0.012,
+              max_drawdown_usdc: 40,
+              max_drawdown_pct: 0.004,
+              turnover_usdc: 5000,
+              fill_count: 3,
+              avg_abs_exposure_pct: 0.22,
+              max_abs_exposure_pct: 0.35,
+              decision_counts: { filled: 3 },
+            },
+          ],
+        };
+      }
+      if (path === "/sleeves" || path === "/sleeves?datasetId=dataset-1") {
+        return defaultSleeveListResponse;
+      }
+      if (path === "/sleeve-comparisons" || path === "/sleeve-comparisons?datasetId=dataset-1") {
+        throw new ApiError("sleeve comparison unavailable", 500);
+      }
+      if (path === "/sleeves/sleeve-run-1") {
+        return defaultSleeveDetailResponse;
+      }
+      throw new Error(`unexpected path ${path}`);
+    });
+
+    renderBacktestsShell();
+
+    expect(await screen.findByRole("link", { name: "momentum" })).toHaveAttribute("href", "/backtests/run-1");
+    expect(await screen.findByText("sleeve comparison unavailable")).toBeInTheDocument();
   });
 });
 

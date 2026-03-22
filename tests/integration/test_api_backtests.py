@@ -146,6 +146,95 @@ def _make_dataset(runs_dir: Path, dataset_id: str) -> None:
     )
 
 
+def _make_strategy_sleeve(runs_dir: Path, run_id: str, *, dataset_id: str, strategy_instance_id: str, strategy_id: str) -> None:
+    run_dir = runs_dir / "backtests" / "sleeves" / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    _write_json(
+        run_dir / "manifest.json",
+        {
+            "run_id": run_id,
+            "created_at": f"{run_id}-created",
+            "mode": "backtest",
+            "dataset_id": dataset_id,
+            "strategy_instance_id": strategy_instance_id,
+            "strategy_id": strategy_id,
+        },
+    )
+    _write_json(
+        run_dir / "state.json",
+        {
+            "run_id": run_id,
+            "ending_equity_usdc": 10_120.0,
+        },
+    )
+    _write_json(
+        run_dir / "analysis.json",
+        {
+            "run_id": run_id,
+            "mode": "backtest",
+            "product_id": "MULTI_ASSET",
+            "strategy_id": strategy_id,
+            "started_at": None,
+            "ended_at": None,
+            "date_range_start": "2026-03-20T00:00:00+00:00",
+            "date_range_end": "2026-03-21T00:00:00+00:00",
+            "sharpe_ratio": 1.1,
+            "cycle_count": 2,
+            "starting_equity_usdc": 10_000.0,
+            "ending_equity_usdc": 10_120.0,
+            "realized_pnl_usdc": 70.0,
+            "unrealized_pnl_usdc": 50.0,
+            "total_pnl_usdc": 120.0,
+            "total_return_pct": 0.012,
+            "max_drawdown_usdc": 30.0,
+            "max_drawdown_pct": 0.003,
+            "turnover_usdc": 2_400.0,
+            "fill_count": 2,
+            "trade_count": 2,
+            "avg_abs_exposure_pct": 0.18,
+            "max_abs_exposure_pct": 0.25,
+            "decision_counts": {"filled": 2},
+            "equity_series": [{"label": "a", "value": 10_000.0}, {"label": "b", "value": 10_120.0}],
+            "drawdown_series": [{"label": "a", "value": 0.0}, {"label": "b", "value": 30.0}],
+            "exposure_series": [{"label": "a", "value": 0.10}, {"label": "b", "value": 0.18}],
+        },
+    )
+    _write_json(
+        run_dir / "sleeve_analysis.json",
+        {
+            "run_id": run_id,
+            "dataset_id": dataset_id,
+            "dataset_fingerprint": "fp-1",
+            "dataset_source": "coinbase",
+            "dataset_version": "1",
+            "strategy_instance_id": strategy_instance_id,
+            "strategy_id": strategy_id,
+            "config_fingerprint": "cfg-1",
+            "date_range_start": "2026-03-20T00:00:00+00:00",
+            "date_range_end": "2026-03-21T00:00:00+00:00",
+            "total_pnl_usdc": 120.0,
+            "total_return_pct": 0.012,
+            "max_drawdown_usdc": 30.0,
+            "max_drawdown_pct": 0.003,
+            "daily_returns": [{"label": "2026-03-20", "value": 0.012}],
+            "daily_turnover_usdc": [{"label": "2026-03-20", "value": 2400.0}],
+            "daily_avg_abs_exposure_pct": [{"label": "2026-03-20", "value": 0.18}],
+            "asset_contributions": [
+                {
+                    "product_id": "BTC-PERP-INTX",
+                    "total_pnl_usdc": 70.0,
+                    "daily_pnl_series": [{"label": "2026-03-20", "value": 70.0}],
+                },
+                {
+                    "product_id": "ETH-PERP-INTX",
+                    "total_pnl_usdc": 50.0,
+                    "daily_pnl_series": [{"label": "2026-03-20", "value": 50.0}],
+                },
+            ],
+        },
+    )
+
+
 class StubBacktestManager:
     def __init__(self):
         self.started = None
@@ -236,6 +325,48 @@ def test_backtests_list_and_detail_endpoints(monkeypatch, tmp_path) -> None:
     assert datasets_response.json()["items"][0]["datasetId"] == "dataset-1"
     assert dataset_response.status_code == 200
     assert dataset_response.json()["fingerprint"] == "fp-1"
+
+
+def test_strategy_sleeve_endpoints_list_detail_and_compare(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("RUNS_DIR", str(tmp_path))
+    monkeypatch.setattr("perpfut.api.routers.backtests.get_backtest_job_manager", lambda: StubBacktestManager())
+    _make_dataset(tmp_path, "dataset-1")
+    _make_strategy_sleeve(
+        tmp_path,
+        "sleeve-run-2",
+        dataset_id="dataset-1",
+        strategy_instance_id="mom-fast",
+        strategy_id="momentum",
+    )
+    _make_strategy_sleeve(
+        tmp_path,
+        "sleeve-run-1",
+        dataset_id="dataset-1",
+        strategy_instance_id="mean-slow",
+        strategy_id="mean_reversion",
+    )
+    client = TestClient(create_app())
+
+    list_response = client.get("/api/sleeves", params={"datasetId": "dataset-1"})
+    comparison_response = client.get("/api/sleeve-comparisons", params={"datasetId": "dataset-1"})
+    detail_response = client.get("/api/sleeves/sleeve-run-2")
+
+    assert list_response.status_code == 200
+    assert list_response.json()["count"] == 2
+    assert list_response.json()["items"][0]["run_id"] == "sleeve-run-2"
+    assert list_response.json()["items"][0]["strategy_instance_id"] == "mom-fast"
+
+    assert comparison_response.status_code == 200
+    assert comparison_response.json()["dataset_id"] == "dataset-1"
+    assert comparison_response.json()["items"][0]["rank"] == 1
+    assert comparison_response.json()["items"][0]["asset_contribution_totals"] == {
+        "BTC-PERP-INTX": 70.0,
+        "ETH-PERP-INTX": 50.0,
+    }
+
+    assert detail_response.status_code == 200
+    assert detail_response.json()["analysis"]["sharpe_ratio"] == 1.1
+    assert detail_response.json()["sleeve_analysis"]["strategy_instance_id"] == "mom-fast"
 
 
 def test_backtest_endpoints_return_empty_state_when_no_artifacts_exist(monkeypatch, tmp_path) -> None:

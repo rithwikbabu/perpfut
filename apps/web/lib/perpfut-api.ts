@@ -168,6 +168,58 @@ export type DatasetsListResponse = {
   count: number;
 };
 
+export type StrategySleeveSummary = {
+  run_id: string;
+  created_at: string | null;
+  dataset_id: string | null;
+  strategy_instance_id: string | null;
+  strategy_id: string | null;
+  date_range_start: string | null;
+  date_range_end: string | null;
+  total_pnl_usdc: number;
+  total_return_pct: number;
+  max_drawdown_usdc: number;
+  max_drawdown_pct: number;
+  avg_abs_exposure_pct: number | null;
+  turnover_usdc: number | null;
+};
+
+export type StrategySleevesListResponse = {
+  items: StrategySleeveSummary[];
+  count: number;
+};
+
+export type StrategySleeveComparisonItem = {
+  rank: number;
+  run_id: string;
+  dataset_id: string | null;
+  strategy_instance_id: string | null;
+  strategy_id: string | null;
+  date_range_start: string | null;
+  date_range_end: string | null;
+  total_pnl_usdc: number;
+  total_return_pct: number;
+  max_drawdown_usdc: number;
+  max_drawdown_pct: number;
+  avg_abs_exposure_pct: number | null;
+  turnover_usdc: number | null;
+  asset_contribution_totals: Record<string, number>;
+};
+
+export type StrategySleeveComparisonResponse = {
+  dataset_id: string | null;
+  ranking_policy: string;
+  items: StrategySleeveComparisonItem[];
+};
+
+export type StrategySleeveDetailResponse = {
+  run_id: string;
+  manifest: Record<string, unknown>;
+  state: Record<string, unknown>;
+  analysis: RunAnalysisResponse;
+  sleeve_analysis: Record<string, unknown>;
+};
+
 export type BacktestJobStatusResponse = {
   job_id: string;
   status: string;

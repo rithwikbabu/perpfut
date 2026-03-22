@@ -18,6 +18,7 @@ from ..repository import (
     list_backtest_run_summaries,
     list_backtest_suite_summaries,
     list_portfolio_run_summaries,
+    list_strategy_sleeve_summaries,
     load_artifact_list,
     load_backtest_run_detail,
     load_backtest_suite_detail,
@@ -26,6 +27,8 @@ from ..repository import (
     load_portfolio_run_comparison,
     load_portfolio_run_detail,
     load_run_analysis,
+    load_strategy_sleeve_comparison,
+    load_strategy_sleeve_detail,
 )
 from ...backtest_data import HistoricalDatasetBuilder
 from ...exchange_coinbase import CoinbasePublicClient
@@ -49,6 +52,9 @@ from ..schemas import (
     PortfolioRunRequest,
     PortfolioRunsListResponse,
     RunAnalysisResponse,
+    StrategySleeveComparisonResponse,
+    StrategySleeveDetailResponse,
+    StrategySleevesListResponse,
 )
 from ...config import AppConfig
 
@@ -263,6 +269,38 @@ def read_portfolio_run(run_id: str) -> PortfolioRunDetailResponse:
 def read_portfolio_run_analysis(run_id: str) -> PortfolioRunAnalysisResponse:
     try:
         return load_portfolio_run_analysis(run_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ArtifactError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/sleeves", response_model=StrategySleevesListResponse)
+def read_strategy_sleeves(
+    limit: int = Query(default=10, ge=1, le=200),
+    dataset_id: str | None = Query(default=None, alias="datasetId"),
+) -> StrategySleevesListResponse:
+    try:
+        return list_strategy_sleeve_summaries(limit=limit, dataset_id=dataset_id)
+    except (OSError, ValueError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=500, detail="invalid strategy sleeve artifacts") from exc
+
+
+@router.get("/sleeve-comparisons", response_model=StrategySleeveComparisonResponse)
+def read_strategy_sleeve_comparison(
+    limit: int = Query(default=10, ge=1, le=200),
+    dataset_id: str | None = Query(default=None, alias="datasetId"),
+) -> StrategySleeveComparisonResponse:
+    try:
+        return load_strategy_sleeve_comparison(limit=limit, dataset_id=dataset_id)
+    except (OSError, ValueError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=500, detail="invalid strategy sleeve artifacts") from exc
+
+
+@router.get("/sleeves/{run_id}", response_model=StrategySleeveDetailResponse)
+def read_strategy_sleeve(run_id: str) -> StrategySleeveDetailResponse:
+    try:
+        return load_strategy_sleeve_detail(run_id)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ArtifactError as exc:
