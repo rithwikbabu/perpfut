@@ -183,13 +183,44 @@ instance. Sleeve detail responses include:
 
 ### Portfolio optimizer routes
 
+- `GET /api/strategy-catalog`
 - `GET /api/portfolio-runs`
 - `GET /api/portfolio-runs?datasetId=<dataset_id>`
 - `GET /api/portfolio-run-comparisons`
 - `GET /api/portfolio-run-comparisons?datasetId=<dataset_id>`
 - `GET /api/portfolio-runs/{runId}`
 - `GET /api/portfolio-runs/{runId}/analysis`
+- `POST /api/sleeves`
 - `POST /api/portfolio-runs`
+
+`GET /api/strategy-catalog` returns the guided builder metadata the frontend
+uses for `strategyId`, `lookback_candles`, `signal_scale`, and the supported
+research-only risk overrides.
+
+`POST /api/sleeves` accepts:
+
+```json
+{
+  "datasetId": "20260322T120000000000Z",
+  "strategyInstances": [
+    {
+      "strategyInstanceId": "mom-fast",
+      "strategyId": "momentum",
+      "universe": ["BTC-PERP-INTX", "ETH-PERP-INTX"],
+      "strategyParams": {
+        "lookback_candles": 10,
+        "signal_scale": 20.0
+      },
+      "riskOverrides": {
+        "max_abs_position": 0.3
+      }
+    }
+  ]
+}
+```
+
+It returns the created or reused sleeve summaries immediately so the UI can
+refresh the sleeve list and select the new artifact in the same request cycle.
 
 `POST /api/portfolio-runs` accepts:
 
@@ -222,6 +253,29 @@ instance. Sleeve detail responses include:
 The top-level API request uses camelCase field names. The nested
 `strategyParams` and `riskOverrides` objects keep the snake_case keys from the
 research-only `StrategyInstanceSpec` contract.
+
+`POST /api/portfolio-runs` also supports launching from an explicit sleeve
+selection instead of builder cards:
+
+```json
+{
+  "datasetId": "20260322T120000000000Z",
+  "sleeveRunIds": ["sleeve-run-1", "sleeve-run-2"],
+  "startingCapitalUsdc": 10000,
+  "lookbackDays": 60,
+  "maxStrategyWeight": 0.4,
+  "covarianceShrinkage": 0.1,
+  "ridgePenalty": 0.001,
+  "turnoverCostBps": 2.0
+}
+```
+
+Validation rules:
+
+- exactly one of `strategyInstances` or `sleeveRunIds` must be present
+- `sleeveRunIds` must all exist
+- selected sleeves must all belong to the same `datasetId`
+- duplicate `strategyInstanceId` values in selected sleeves are rejected
 
 Portfolio detail responses include:
 
