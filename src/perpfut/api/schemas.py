@@ -337,6 +337,46 @@ class StrategyInstanceRequest(BaseModel):
     }
 
 
+class StrategyCatalogFieldResponse(BaseModel):
+    key: str
+    label: str
+    input_kind: str = Field(alias="inputKind")
+    required: bool
+    default_value: int | float | None = Field(alias="defaultValue", default=None)
+    min_value: int | float | None = Field(alias="minValue", default=None)
+    max_value: int | float | None = Field(alias="maxValue", default=None)
+    step: int | float | None = None
+
+    model_config = {
+        "populate_by_name": True,
+    }
+
+
+class StrategyCatalogItemResponse(BaseModel):
+    strategy_id: str = Field(alias="strategyId")
+    label: str
+    strategy_params: list[StrategyCatalogFieldResponse] = Field(alias="strategyParams", default_factory=list)
+    risk_overrides: list[StrategyCatalogFieldResponse] = Field(alias="riskOverrides", default_factory=list)
+
+    model_config = {
+        "populate_by_name": True,
+    }
+
+
+class StrategyCatalogResponse(BaseModel):
+    items: list[StrategyCatalogItemResponse]
+    count: int
+
+
+class SleeveLaunchRequest(BaseModel):
+    dataset_id: str = Field(alias="datasetId")
+    strategy_instances: list[StrategyInstanceRequest] = Field(alias="strategyInstances", min_length=1)
+
+    model_config = {
+        "populate_by_name": True,
+    }
+
+
 class PortfolioRunRequest(BaseModel):
     dataset_id: str = Field(alias="datasetId")
     strategy_instances: list[StrategyInstanceRequest] = Field(alias="strategyInstances", min_length=1)
