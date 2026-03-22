@@ -1,4 +1,5 @@
 import json
+import os
 
 import pytest
 
@@ -145,11 +146,13 @@ def test_status_raises_when_control_lock_times_out(monkeypatch, tmp_path) -> Non
     manager = PaperProcessManager(tmp_path)
     control_dir = tmp_path / "control"
     control_dir.mkdir(parents=True, exist_ok=True)
-    (control_dir / "active_paper.lock").write_text("busy", encoding="utf-8")
+    lock_path = control_dir / "active_paper.lock"
+    lock_path.write_text("", encoding="utf-8")
     monotonic_values = iter([0.0, 5.1])
 
     monkeypatch.setattr("time.sleep", lambda *_args, **_kwargs: None)
     monkeypatch.setattr("time.monotonic", lambda: next(monotonic_values, 5.2))
+    monkeypatch.setattr("time.time", lambda: lock_path.stat().st_mtime)
 
     with pytest.raises(PaperRunStateError, match="lock timed out"):
         manager.status()
@@ -163,6 +166,23 @@ def test_status_reaps_stale_control_lock(monkeypatch, tmp_path) -> None:
     lock_path.write_text("9999", encoding="utf-8")
 
     monkeypatch.setattr(manager, "_is_process_alive", lambda pid: False)
+
+    status = manager.status()
+
+    assert status.active is False
+    assert not lock_path.exists()
+
+
+def test_status_reaps_old_empty_control_lock(monkeypatch, tmp_path) -> None:
+    manager = PaperProcessManager(tmp_path)
+    control_dir = tmp_path / "control"
+    control_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = control_dir / "active_paper.lock"
+    lock_path.write_text("", encoding="utf-8")
+    old_timestamp = lock_path.stat().st_mtime - manager.lock_stale_after_seconds - 1.0
+    os.utime(lock_path, (old_timestamp, old_timestamp))
+
+    monkeypatch.setattr("time.time", lambda: old_timestamp + manager.lock_stale_after_seconds + 2.0)
 
     status = manager.status()
 

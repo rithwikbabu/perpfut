@@ -46,6 +46,8 @@ class PaperProcessMetadata:
 
 
 class PaperProcessManager:
+    lock_stale_after_seconds = 10.0
+
     def __init__(self, runs_dir: Path):
         self.runs_dir = runs_dir
         self.control_dir = runs_dir / "control"
@@ -235,6 +237,8 @@ class PaperProcessManager:
 
     def _reap_stale_lock(self) -> None:
         try:
+            stat_result = self.lock_path.stat()
+            lock_age_seconds = max(time.time() - stat_result.st_mtime, 0.0)
             payload = self.lock_path.read_text(encoding="utf-8").strip()
         except FileNotFoundError:
             return
@@ -242,13 +246,15 @@ class PaperProcessManager:
             raise PaperRunStateError("failed to inspect paper run control lock") from exc
 
         if not payload:
-            self._remove_lock_file()
+            if lock_age_seconds >= self.lock_stale_after_seconds:
+                self._remove_lock_file()
             return
 
         try:
             pid = int(payload)
         except ValueError:
-            self._remove_lock_file()
+            if lock_age_seconds >= self.lock_stale_after_seconds:
+                self._remove_lock_file()
             return
 
         if not self._is_process_alive(pid):
