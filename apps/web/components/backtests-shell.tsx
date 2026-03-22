@@ -25,6 +25,9 @@ import {
   type BacktestSuiteDetailResponse,
   type BacktestSuitesListResponse,
   type DatasetsListResponse,
+  type StrategySleeveComparisonResponse,
+  type StrategySleeveDetailResponse,
+  type StrategySleevesListResponse,
 } from "@/lib/perpfut-api";
 
 
@@ -282,6 +285,7 @@ export function BacktestsShell() {
   const [pendingLaunch, setPendingLaunch] = useState(false);
   const [selectedSuiteId, setSelectedSuiteId] = useState<string | null>(null);
   const [selectedDatasetId, setSelectedDatasetId] = useState<string | null>(null);
+  const [selectedSleeveRunId, setSelectedSleeveRunId] = useState<string | null>(null);
 
   const backtests = useSWR<BacktestsListResponse>("/backtests", fetchJson, {
     refreshInterval: 2000,
@@ -292,6 +296,21 @@ export function BacktestsShell() {
   const suites = useSWR<BacktestSuitesListResponse>("/backtest-suites", fetchJson, {
     refreshInterval: 2000,
   });
+  const sleeves = useSWR<StrategySleevesListResponse>(
+    selectedDatasetId ? `/sleeves?datasetId=${encodeURIComponent(selectedDatasetId)}` : "/sleeves",
+    fetchJson,
+    { refreshInterval: 2000 },
+  );
+  const sleeveComparison = useSWR<StrategySleeveComparisonResponse>(
+    selectedDatasetId ? `/sleeve-comparisons?datasetId=${encodeURIComponent(selectedDatasetId)}` : "/sleeve-comparisons",
+    fetchJson,
+    { refreshInterval: 2000 },
+  );
+  const selectedSleeve = useSWR<StrategySleeveDetailResponse>(
+    selectedSleeveRunId ? `/sleeves/${selectedSleeveRunId}` : null,
+    fetchJson,
+    { refreshInterval: 2000 },
+  );
   const selectedSuite = useSWR<BacktestSuiteDetailResponse>(
     selectedSuiteId ? `/backtest-suites/${selectedSuiteId}` : null,
     fetchJson,
@@ -322,8 +341,27 @@ export function BacktestsShell() {
     }
   }, [selectedSuiteId, suites.data]);
 
+  useEffect(() => {
+    const nextSleeveRunId = sleeves.data?.items[0]?.run_id ?? null;
+    if (!selectedSleeveRunId && nextSleeveRunId) {
+      setSelectedSleeveRunId(nextSleeveRunId);
+      return;
+    }
+    if (selectedSleeveRunId && sleeves.data && !sleeves.data.items.some((item) => item.run_id === selectedSleeveRunId)) {
+      setSelectedSleeveRunId(nextSleeveRunId);
+    }
+  }, [selectedSleeveRunId, sleeves.data]);
+
   async function refreshBacktests() {
-    await Promise.all([backtests.mutate(), datasets.mutate(), suites.mutate(), selectedSuite.mutate()]);
+    await Promise.all([
+      backtests.mutate(),
+      datasets.mutate(),
+      suites.mutate(),
+      sleeves.mutate(),
+      sleeveComparison.mutate(),
+      selectedSuite.mutate(),
+      selectedSleeve.mutate(),
+    ]);
   }
 
   async function handleLaunch(event: React.FormEvent<HTMLFormElement>) {
@@ -723,6 +761,101 @@ export function BacktestsShell() {
             )}
           </ShellPanel>
 
+          <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+            <ShellPanel className="p-5">
+              <ShellHeader
+                eyebrow="Sleeves"
+                title="Strategy sleeve runs"
+                action={`${sleeves.data?.count ?? 0} loaded`}
+              />
+              {sleeves.isLoading ? (
+                <LoadingBlock title="Loading strategy sleeves." />
+              ) : sleeves.error ? (
+                <ErrorBlock message={sleeves.error.message} />
+              ) : sleeves.data && sleeves.data.items.length > 0 ? (
+                <div className="space-y-3">
+                  {sleeves.data.items.map((sleeve) => {
+                    const active = sleeve.run_id === selectedSleeveRunId;
+                    return (
+                      <button
+                        key={sleeve.run_id}
+                        type="button"
+                        onClick={() => startTransition(() => setSelectedSleeveRunId(sleeve.run_id))}
+                        className={`w-full border px-4 py-4 text-left transition ${
+                          active
+                            ? "border-[var(--border-strong)] bg-[rgba(84,191,255,0.08)]"
+                            : "border-[var(--border)] bg-[var(--bg-elevated)] hover:border-[var(--border-strong)]"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-4">
+                          <div className="text-sm font-medium text-[var(--text)]">
+                            {sleeve.strategy_instance_id ?? sleeve.run_id}
+                          </div>
+                          <div className="mono text-[10px] uppercase tracking-[0.24em] text-[var(--muted)]">
+                            {formatTimestamp(sleeve.created_at)}
+                          </div>
+                        </div>
+                        <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
+                          {sleeve.strategy_id ?? "--"} · {formatDateRange(sleeve.date_range_start, sleeve.date_range_end)}
+                        </p>
+                        <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                          <MetricChip label="Return" value={formatSignedPercent(sleeve.total_return_pct)} tone="accent" />
+                          <MetricChip label="P&L" value={formatMoney(sleeve.total_pnl_usdc)} />
+                          <MetricChip label="Avg Exposure" value={formatPercent(sleeve.avg_abs_exposure_pct)} />
+                          <MetricChip label="Turnover" value={formatMoney(sleeve.turnover_usdc)} />
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <LoadingBlock title="No strategy sleeves for the selected dataset yet." />
+              )}
+            </ShellPanel>
+
+            <ShellPanel className="p-5">
+              <ShellHeader
+                eyebrow="Attribution"
+                title="Selected sleeve attribution"
+                action={selectedSleeve.data?.run_id ?? "awaiting sleeve"}
+              />
+              {selectedSleeve.isLoading ? (
+                <LoadingBlock title="Loading sleeve attribution." />
+              ) : selectedSleeve.error ? (
+                <ErrorBlock message={selectedSleeve.error.message} />
+              ) : selectedSleeve.data ? (
+                <div className="space-y-4">
+                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                    <MetricChip label="Return" value={formatSignedPercent(selectedSleeve.data.analysis.total_return_pct)} tone="accent" />
+                    <MetricChip label="P&L" value={formatMoney(selectedSleeve.data.analysis.total_pnl_usdc)} />
+                    <MetricChip label="Drawdown" value={formatPercent(selectedSleeve.data.analysis.max_drawdown_pct)} tone="warning" />
+                    <MetricChip label="Exposure" value={formatPercent(selectedSleeve.data.analysis.avg_abs_exposure_pct)} />
+                  </div>
+                  <div className="overflow-x-auto border border-[var(--border)] bg-[var(--bg-elevated)]">
+                    <table className="min-w-full text-left text-sm">
+                      <thead className="border-b border-[var(--border)] text-[var(--muted)]">
+                        <tr>
+                          <th className="px-4 py-3 font-medium">Asset</th>
+                          <th className="px-4 py-3 font-medium">Total P&amp;L</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(((selectedSleeve.data.sleeve_analysis.asset_contributions as { product_id: string; total_pnl_usdc: number }[] | undefined) ?? [])).map((item) => (
+                          <tr key={item.product_id} className="border-b border-[var(--border)] last:border-b-0">
+                            <td className="px-4 py-3 text-[var(--text)]">{item.product_id}</td>
+                            <td className="px-4 py-3 text-[var(--text)]">{formatMoney(item.total_pnl_usdc)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                <LoadingBlock title="Select a sleeve to inspect attribution and daily metrics." />
+              )}
+            </ShellPanel>
+          </div>
+
           <div className="grid gap-4 xl:grid-cols-[0.92fr_1.08fr]">
             <ShellPanel className="p-5">
               <ShellHeader
@@ -771,56 +904,85 @@ export function BacktestsShell() {
 
             <ShellPanel className="p-5">
               <ShellHeader
-                eyebrow="Leaderboard"
-                title="Selected suite ranking"
-                action={selectedSuite.data?.ranking_policy ?? "awaiting suite"}
+                eyebrow="Comparison"
+                title="Selected suite and sleeve rankings"
+                action={selectedSuite.data?.ranking_policy ?? sleeveComparison.data?.ranking_policy ?? "awaiting rankings"}
               />
-              {selectedSuite.isLoading ? (
-                <LoadingBlock title="Loading suite ranking." />
-              ) : selectedSuite.error ? (
-                <ErrorBlock message={selectedSuite.error.message} />
-              ) : selectedSuite.data ? (
-                <div className="overflow-x-auto border border-[var(--border)] bg-[var(--bg-elevated)]">
-                  <table className="min-w-full text-left text-sm">
-                    <thead className="border-b border-[var(--border)] text-[var(--muted)]">
-                      <tr>
-                        <th className="px-4 py-3 font-medium">Rank</th>
-                        <th className="px-4 py-3 font-medium">Strategy</th>
-                        <th className="px-4 py-3 font-medium">Date Range</th>
-                        <th className="px-4 py-3 font-medium">Sharpe</th>
-                        <th className="px-4 py-3 font-medium">Return</th>
-                        <th className="px-4 py-3 font-medium">P&amp;L</th>
-                        <th className="px-4 py-3 font-medium">Drawdown</th>
-                        <th className="px-4 py-3 font-medium">Turns</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {selectedSuite.data.items.map((item) => (
-                        <tr key={item.run_id} className="border-b border-[var(--border)] last:border-b-0">
-                          <td className="px-4 py-3 text-[var(--text)]">{item.rank}</td>
-                          <td className="px-4 py-3 text-[var(--text)]">
-                            <Link
-                              href={`/backtests/${item.run_id}`}
-                              className="underline decoration-[var(--border)] underline-offset-4"
-                            >
-                              {item.strategy_id ?? item.run_id}
-                            </Link>
-                          </td>
-                          <td className="px-4 py-3 text-[var(--muted)]">
-                            {formatDateRange(item.date_range_start, item.date_range_end)}
-                          </td>
-                          <td className="px-4 py-3 text-[var(--text)]">{formatSharpe(item.sharpe_ratio)}</td>
-                          <td className="px-4 py-3 text-[var(--accent)]">{formatSignedPercent(item.total_return_pct)}</td>
-                          <td className="px-4 py-3 text-[var(--text)]">{formatMoney(item.total_pnl_usdc)}</td>
-                          <td className="px-4 py-3 text-[var(--warning)]">{formatPercent(item.max_drawdown_pct)}</td>
-                          <td className="px-4 py-3 text-[var(--muted)]">{formatCount(item.fill_count)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+              {selectedSuite.isLoading || sleeveComparison.isLoading ? (
+                <LoadingBlock title="Loading suite and sleeve rankings." />
+              ) : selectedSuite.error || sleeveComparison.error ? (
+                <ErrorBlock message={(selectedSuite.error ?? sleeveComparison.error)?.message ?? "ranking unavailable"} />
+              ) : selectedSuite.data || sleeveComparison.data ? (
+                <div className="space-y-4">
+                  {selectedSuite.data ? (
+                    <div className="overflow-x-auto border border-[var(--border)] bg-[var(--bg-elevated)]">
+                      <table className="min-w-full text-left text-sm">
+                        <thead className="border-b border-[var(--border)] text-[var(--muted)]">
+                          <tr>
+                            <th className="px-4 py-3 font-medium">Rank</th>
+                            <th className="px-4 py-3 font-medium">Strategy</th>
+                            <th className="px-4 py-3 font-medium">Date Range</th>
+                            <th className="px-4 py-3 font-medium">Sharpe</th>
+                            <th className="px-4 py-3 font-medium">Return</th>
+                            <th className="px-4 py-3 font-medium">P&amp;L</th>
+                            <th className="px-4 py-3 font-medium">Drawdown</th>
+                            <th className="px-4 py-3 font-medium">Turns</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selectedSuite.data.items.map((item) => (
+                            <tr key={item.run_id} className="border-b border-[var(--border)] last:border-b-0">
+                              <td className="px-4 py-3 text-[var(--text)]">{item.rank}</td>
+                              <td className="px-4 py-3 text-[var(--text)]">
+                                <Link href={`/backtests/${item.run_id}`} className="underline decoration-[var(--border)] underline-offset-4">
+                                  {item.strategy_id ?? item.run_id}
+                                </Link>
+                              </td>
+                              <td className="px-4 py-3 text-[var(--muted)]">{formatDateRange(item.date_range_start, item.date_range_end)}</td>
+                              <td className="px-4 py-3 text-[var(--text)]">{formatSharpe(item.sharpe_ratio)}</td>
+                              <td className="px-4 py-3 text-[var(--accent)]">{formatSignedPercent(item.total_return_pct)}</td>
+                              <td className="px-4 py-3 text-[var(--text)]">{formatMoney(item.total_pnl_usdc)}</td>
+                              <td className="px-4 py-3 text-[var(--warning)]">{formatPercent(item.max_drawdown_pct)}</td>
+                              <td className="px-4 py-3 text-[var(--muted)]">{formatCount(item.fill_count)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : null}
+                  {sleeveComparison.data ? (
+                    <div className="overflow-x-auto border border-[var(--border)] bg-[var(--bg-elevated)]">
+                      <table className="min-w-full text-left text-sm">
+                        <thead className="border-b border-[var(--border)] text-[var(--muted)]">
+                          <tr>
+                            <th className="px-4 py-3 font-medium">Sleeve Rank</th>
+                            <th className="px-4 py-3 font-medium">Instance</th>
+                            <th className="px-4 py-3 font-medium">Return</th>
+                            <th className="px-4 py-3 font-medium">P&amp;L</th>
+                            <th className="px-4 py-3 font-medium">Drawdown</th>
+                            <th className="px-4 py-3 font-medium">Exposure</th>
+                            <th className="px-4 py-3 font-medium">Turnover</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sleeveComparison.data.items.map((item) => (
+                            <tr key={item.run_id} className="border-b border-[var(--border)] last:border-b-0">
+                              <td className="px-4 py-3 text-[var(--text)]">{item.rank}</td>
+                              <td className="px-4 py-3 text-[var(--text)]">{item.strategy_instance_id ?? item.run_id}</td>
+                              <td className="px-4 py-3 text-[var(--accent)]">{formatSignedPercent(item.total_return_pct)}</td>
+                              <td className="px-4 py-3 text-[var(--text)]">{formatMoney(item.total_pnl_usdc)}</td>
+                              <td className="px-4 py-3 text-[var(--warning)]">{formatPercent(item.max_drawdown_pct)}</td>
+                              <td className="px-4 py-3 text-[var(--text)]">{formatPercent(item.avg_abs_exposure_pct)}</td>
+                              <td className="px-4 py-3 text-[var(--muted)]">{formatMoney(item.turnover_usdc)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : null}
                 </div>
               ) : (
-                <LoadingBlock title="Select a suite to rank strategy candidates." />
+                <LoadingBlock title="Select a dataset to inspect suite and sleeve rankings." />
               )}
             </ShellPanel>
           </div>

@@ -468,3 +468,55 @@ class PortfolioRunComparisonResponse(BaseModel):
     dataset_id: str | None = None
     ranking_policy: str
     items: list[PortfolioRunComparisonItemResponse]
+
+
+class StrategySleeveSummaryResponse(BaseModel):
+    run_id: str
+    created_at: str | None = None
+    dataset_id: str | None = None
+    strategy_instance_id: str | None = None
+    strategy_id: str | None = None
+    date_range_start: str | None = None
+    date_range_end: str | None = None
+    total_pnl_usdc: float
+    total_return_pct: float
+    max_drawdown_usdc: float
+    max_drawdown_pct: float
+    avg_abs_exposure_pct: float | None = None
+    turnover_usdc: float | None = None
+
+
+class StrategySleevesListResponse(BaseModel):
+    items: list[StrategySleeveSummaryResponse]
+    count: int
+
+
+class StrategySleeveComparisonItemResponse(BaseModel):
+    rank: int
+    run_id: str
+    dataset_id: str | None = None
+    strategy_instance_id: str | None = None
+    strategy_id: str | None = None
+    date_range_start: str | None = None
+    date_range_end: str | None = None
+    total_pnl_usdc: float
+    total_return_pct: float
+    max_drawdown_usdc: float
+    max_drawdown_pct: float
+    avg_abs_exposure_pct: float | None = None
+    turnover_usdc: float | None = None
+    asset_contribution_totals: dict[str, float]
+
+
+class StrategySleeveComparisonResponse(BaseModel):
+    dataset_id: str | None = None
+    ranking_policy: str
+    items: list[StrategySleeveComparisonItemResponse]
+
+
+class StrategySleeveDetailResponse(BaseModel):
+    run_id: str
+    manifest: dict[str, Any]
+    state: dict[str, Any]
+    analysis: RunAnalysisResponse
+    sleeve_analysis: dict[str, Any]
