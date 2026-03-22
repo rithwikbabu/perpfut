@@ -220,6 +220,124 @@ export type StrategySleeveDetailResponse = {
   sleeve_analysis: Record<string, unknown>;
 };
 
+export type PortfolioRunSummary = {
+  run_id: string;
+  created_at: string | null;
+  dataset_id: string | null;
+  date_range_start: string | null;
+  date_range_end: string | null;
+  sharpe_ratio: number | null;
+  total_pnl_usdc: number;
+  total_return_pct: number;
+  max_drawdown_usdc: number;
+  max_drawdown_pct: number;
+  total_turnover_usdc: number;
+  avg_gross_weight: number;
+  max_gross_weight: number;
+  strategy_instance_ids: string[];
+};
+
+export type PortfolioRunsListResponse = {
+  items: PortfolioRunSummary[];
+  count: number;
+};
+
+export type PortfolioContributionItem = {
+  strategy_instance_id: string;
+  strategy_id: string;
+  sleeve_run_id: string;
+  total_gross_pnl_usdc: number;
+  daily_gross_pnl_series: AnalysisSeriesPoint[];
+};
+
+export type PortfolioContributionsResponse = {
+  items: PortfolioContributionItem[];
+  transaction_cost_total_usdc: number;
+  transaction_cost_series_usdc: AnalysisSeriesPoint[];
+};
+
+export type PortfolioWeightSnapshot = {
+  date: string;
+  weights: Record<string, number>;
+  cash_weight: number;
+  turnover: number;
+  gross_weight: number;
+};
+
+export type PortfolioDiagnostic = {
+  date: string;
+  expected_returns: Record<string, number>;
+  covariance_matrix: Record<string, Record<string, number>>;
+  constraint_status: string;
+};
+
+export type PortfolioRunAnalysis = {
+  run_id: string;
+  dataset_id: string;
+  dataset_fingerprint: string;
+  dataset_source: string;
+  dataset_version: string;
+  date_range_start: string;
+  date_range_end: string;
+  created_at: string;
+  starting_capital_usdc: number;
+  ending_equity_usdc: number;
+  total_pnl_usdc: number;
+  total_return_pct: number;
+  sharpe_ratio: number | null;
+  max_drawdown_usdc: number;
+  max_drawdown_pct: number;
+  total_turnover_usdc: number;
+  transaction_cost_total_usdc: number;
+  avg_gross_weight: number;
+  max_gross_weight: number;
+  strategy_instance_ids: string[];
+  sleeve_run_ids: string[];
+  equity_series: AnalysisSeriesPoint[];
+  drawdown_series: AnalysisSeriesPoint[];
+  gross_return_series: AnalysisSeriesPoint[];
+  net_return_series: AnalysisSeriesPoint[];
+  turnover_series_usdc: AnalysisSeriesPoint[];
+  transaction_cost_series_usdc: AnalysisSeriesPoint[];
+  gross_weight_series: AnalysisSeriesPoint[];
+  contribution_totals_usdc: Record<string, number>;
+};
+
+export type PortfolioRunDetailResponse = {
+  run_id: string;
+  manifest: Record<string, unknown>;
+  config: Record<string, unknown>;
+  state: Record<string, unknown>;
+  analysis: PortfolioRunAnalysis;
+  weights: PortfolioWeightSnapshot[];
+  diagnostics: PortfolioDiagnostic[];
+  contributions: PortfolioContributionsResponse;
+};
+
+export type PortfolioRunComparisonItem = {
+  rank: number;
+  run_id: string;
+  created_at: string | null;
+  dataset_id: string | null;
+  date_range_start: string | null;
+  date_range_end: string | null;
+  sharpe_ratio: number | null;
+  total_pnl_usdc: number;
+  total_return_pct: number;
+  max_drawdown_usdc: number;
+  max_drawdown_pct: number;
+  total_turnover_usdc: number;
+  avg_gross_weight: number;
+  max_gross_weight: number;
+  strategy_instance_ids: string[];
+};
+
+export type PortfolioRunComparisonResponse = {
+  dataset_id: string | null;
+  ranking_policy: string;
+  items: PortfolioRunComparisonItem[];
+};
+
 export type BacktestJobStatusResponse = {
   job_id: string;
   status: string;
