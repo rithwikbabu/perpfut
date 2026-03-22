@@ -144,14 +144,16 @@ class BacktestJobManager:
             "run",
             "--runs-dir",
             str(self.runs_dir),
-            "--start",
-            request.start,
-            "--end",
-            request.end,
-            "--granularity",
-            request.granularity,
         ]
-        for product_id in request.product_ids:
+        if request.dataset_id is not None:
+            command.extend(["--dataset-id", request.dataset_id])
+        if request.start is not None:
+            command.extend(["--start", request.start])
+        if request.end is not None:
+            command.extend(["--end", request.end])
+        if request.granularity:
+            command.extend(["--granularity", request.granularity])
+        for product_id in request.product_ids or []:
             command.extend(["--product-id", product_id])
         for strategy_id in request.strategy_ids:
             command.extend(["--strategy-id", strategy_id])

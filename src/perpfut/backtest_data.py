@@ -34,6 +34,20 @@ class HistoricalDataset:
 
 
 @dataclass(frozen=True, slots=True)
+class HistoricalDatasetSummary:
+    dataset_id: str
+    created_at: str
+    fingerprint: str
+    source: str
+    version: str
+    products: tuple[str, ...]
+    start: str
+    end: str
+    granularity: str
+    candle_counts: dict[str, int]
+
+
+@dataclass(frozen=True, slots=True)
 class AlignedSnapshotFrame:
     timestamp: datetime
     snapshots: dict[str, MarketSnapshot]
@@ -329,3 +343,50 @@ def compute_dataset_fingerprint(
         json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
     ).hexdigest()
     return digest
+
+
+def list_dataset_summaries(base_runs_dir: Path, *, limit: int = 10) -> list[HistoricalDatasetSummary]:
+    datasets_dir = base_runs_dir / "backtests" / "datasets"
+    if not datasets_dir.exists():
+        return []
+    items: list[HistoricalDatasetSummary] = []
+    for dataset_dir in sorted((item for item in datasets_dir.iterdir() if item.is_dir()), reverse=True):
+        manifest_path = dataset_dir / "manifest.json"
+        if not manifest_path.exists():
+            continue
+        try:
+            items.append(_parse_dataset_summary(json.loads(manifest_path.read_text(encoding="utf-8"))))
+        except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError):
+            continue
+        if len(items) >= limit:
+            break
+    return items
+
+
+def load_dataset_summary(base_runs_dir: Path, *, dataset_id: str) -> HistoricalDatasetSummary:
+    manifest_path = base_runs_dir / "backtests" / "datasets" / dataset_id / "manifest.json"
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"backtest dataset not found: {dataset_id}")
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    return _parse_dataset_summary(payload)
+
+
+def _parse_dataset_summary(payload: dict[str, object]) -> HistoricalDatasetSummary:
+    candle_counts_payload = payload.get("candle_counts", {})
+    if not isinstance(candle_counts_payload, dict):
+        raise ValueError("dataset manifest candle_counts is invalid")
+    return HistoricalDatasetSummary(
+        dataset_id=str(payload["dataset_id"]),
+        created_at=str(payload["created_at"]),
+        fingerprint=str(payload.get("fingerprint", "")),
+        source=str(payload.get("source", DATASET_SOURCE)),
+        version=str(payload.get("version", DATASET_VERSION)),
+        products=tuple(str(item) for item in payload["products"]),
+        start=str(payload["start"]),
+        end=str(payload["end"]),
+        granularity=str(payload["granularity"]),
+        candle_counts={
+            str(product_id): int(count)
+            for product_id, count in candle_counts_payload.items()
+        },
+    )

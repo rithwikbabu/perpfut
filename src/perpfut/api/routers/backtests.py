@@ -14,13 +14,17 @@ from ..backtest_manager import (
 )
 from ..repository import (
     ArtifactError,
+    list_dataset_summary_responses,
     list_backtest_run_summaries,
     list_backtest_suite_summaries,
     load_artifact_list,
     load_backtest_run_detail,
     load_backtest_suite_detail,
+    load_dataset_summary_response,
     load_run_analysis,
 )
+from ...backtest_data import HistoricalDatasetBuilder
+from ...exchange_coinbase import CoinbasePublicClient
 from ..schemas import (
     ArtifactListResponse,
     BacktestJobStatusResponse,
@@ -29,11 +33,52 @@ from ..schemas import (
     BacktestsListResponse,
     BacktestSuiteDetailResponse,
     BacktestSuitesListResponse,
+    DatasetBuildRequest,
+    DatasetSummaryResponse,
+    DatasetsListResponse,
     RunAnalysisResponse,
 )
+from ...config import AppConfig
 
 
 router = APIRouter(tags=["backtests"])
+
+
+@router.get("/datasets", response_model=DatasetsListResponse)
+def read_datasets(limit: int = Query(default=10, ge=1, le=200)) -> DatasetsListResponse:
+    try:
+        return list_dataset_summary_responses(limit=limit)
+    except (OSError, ValueError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=500, detail="invalid dataset artifacts") from exc
+
+
+@router.post("/datasets", response_model=DatasetSummaryResponse, status_code=status.HTTP_201_CREATED)
+def build_dataset(request: DatasetBuildRequest) -> DatasetSummaryResponse:
+    config = AppConfig.from_env()
+    start = _parse_dataset_datetime(request.start, field_name="start")
+    end = _parse_dataset_datetime(request.end, field_name="end")
+    try:
+        with CoinbasePublicClient() as client:
+            builder = HistoricalDatasetBuilder(client=client, base_runs_dir=config.runtime.runs_dir)
+            dataset = builder.build_dataset(
+                products=request.product_ids,
+                start=start,
+                end=end,
+                granularity=request.granularity,
+            )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return load_dataset_summary_response(dataset.dataset_id)
+
+
+@router.get("/datasets/{dataset_id}", response_model=DatasetSummaryResponse)
+def read_dataset(dataset_id: str) -> DatasetSummaryResponse:
+    try:
+        return load_dataset_summary_response(dataset_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=500, detail="invalid dataset artifacts") from exc
 
 
 @router.get("/backtests", response_model=BacktestsListResponse)
@@ -165,3 +210,14 @@ def _parse_timestamp(value: str | None) -> datetime | None:
         return datetime.fromisoformat(value)
     except ValueError:
         return None
+
+
+def _parse_dataset_datetime(value: str, *, field_name: str) -> datetime:
+    normalized = value.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"invalid {field_name} datetime: {value}") from exc
+    if parsed.tzinfo is None:
+        raise HTTPException(status_code=422, detail=f"{field_name} datetime must include a timezone: {value}")
+    return parsed

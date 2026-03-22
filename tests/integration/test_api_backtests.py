@@ -126,6 +126,26 @@ def _make_backtest_suite(runs_dir: Path, suite_id: str, run_ids: list[str], stra
     )
 
 
+def _make_dataset(runs_dir: Path, dataset_id: str) -> None:
+    dataset_dir = runs_dir / "backtests" / "datasets" / dataset_id
+    dataset_dir.mkdir(parents=True, exist_ok=True)
+    _write_json(
+        dataset_dir / "manifest.json",
+        {
+            "dataset_id": dataset_id,
+            "created_at": "2026-03-20T00:00:00+00:00",
+            "fingerprint": "fp-1",
+            "source": "coinbase",
+            "version": "1",
+            "products": ["BTC-PERP-INTX", "ETH-PERP-INTX"],
+            "start": "2026-03-20T00:00:00+00:00",
+            "end": "2026-03-21T00:00:00+00:00",
+            "granularity": "ONE_MINUTE",
+            "candle_counts": {"BTC-PERP-INTX": 1440, "ETH-PERP-INTX": 1440},
+        },
+    )
+
+
 class StubBacktestManager:
     def __init__(self):
         self.started = None
@@ -170,6 +190,7 @@ def test_backtests_list_and_detail_endpoints(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("RUNS_DIR", str(tmp_path))
     manager = StubBacktestManager()
     monkeypatch.setattr("perpfut.api.routers.backtests.get_backtest_job_manager", lambda: manager)
+    _make_dataset(tmp_path, "dataset-1")
     _make_backtest_run(tmp_path, "run-2", suite_id="suite-1", strategy_id="momentum")
     _make_backtest_run(tmp_path, "run-1", suite_id="suite-1", strategy_id="mean_reversion")
     _make_backtest_suite(tmp_path, "suite-1", ["run-2", "run-1"], ["momentum", "mean_reversion"])
@@ -181,6 +202,8 @@ def test_backtests_list_and_detail_endpoints(monkeypatch, tmp_path) -> None:
     events_response = client.get("/api/backtests/run-2/events", params={"limit": 1})
     suites_response = client.get("/api/backtest-suites")
     suite_detail_response = client.get("/api/backtest-suites/suite-1")
+    datasets_response = client.get("/api/datasets")
+    dataset_response = client.get("/api/datasets/dataset-1")
 
     assert list_response.status_code == 200
     assert list_response.json()["count"] == 1
@@ -209,6 +232,10 @@ def test_backtests_list_and_detail_endpoints(monkeypatch, tmp_path) -> None:
     assert suite_detail_response.json()["date_range_start"] == "2026-03-20T00:00:00+00:00"
     assert suite_detail_response.json()["items"][0]["rank"] == 1
     assert suite_detail_response.json()["items"][0]["date_range_start"] == "2026-03-20T00:00:00+00:00"
+    assert datasets_response.status_code == 200
+    assert datasets_response.json()["items"][0]["datasetId"] == "dataset-1"
+    assert dataset_response.status_code == 200
+    assert dataset_response.json()["fingerprint"] == "fp-1"
 
 
 def test_backtest_endpoints_return_empty_state_when_no_artifacts_exist(monkeypatch, tmp_path) -> None:
@@ -248,6 +275,57 @@ def test_start_backtest_route_returns_job_status(monkeypatch) -> None:
     assert response.json()["progress_pct"] == 0.5
     assert manager.started is not None
     assert manager.started.product_ids == ["BTC-PERP-INTX", "ETH-PERP-INTX"]
+
+
+def test_start_backtest_route_accepts_dataset_id(monkeypatch) -> None:
+    manager = StubBacktestManager()
+    monkeypatch.setattr("perpfut.api.routers.backtests.get_backtest_job_manager", lambda: manager)
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/api/backtests",
+        json={
+            "datasetId": "dataset-1",
+            "strategyIds": ["momentum"],
+        },
+    )
+
+    assert response.status_code == 202
+    assert manager.started is not None
+    assert manager.started.dataset_id == "dataset-1"
+    assert manager.started.product_ids is None
+
+
+def test_build_dataset_route_rejects_timezone_naive_timestamps(monkeypatch) -> None:
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/api/datasets",
+        json={
+            "productIds": ["BTC-PERP-INTX"],
+            "start": "2026-03-20T00:00:00",
+            "end": "2026-03-21T00:00:00+00:00",
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "start datetime must include a timezone: 2026-03-20T00:00:00"
+
+
+def test_build_dataset_route_rejects_invalid_ranges(monkeypatch) -> None:
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/api/datasets",
+        json={
+            "productIds": ["BTC-PERP-INTX"],
+            "start": "2026-03-21T00:00:00+00:00",
+            "end": "2026-03-20T00:00:00+00:00",
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "dataset end must be after start"
 
 
 def test_backtests_list_surfaces_latest_terminal_job(monkeypatch, tmp_path) -> None:

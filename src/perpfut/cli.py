@@ -12,7 +12,11 @@ from pathlib import Path
 
 from .analysis import analyze_run
 from .api.server import run_api_server
-from .backtest_data import HistoricalDatasetBuilder
+from .backtest_data import (
+    HistoricalDatasetBuilder,
+    list_dataset_summaries,
+    load_dataset_summary,
+)
 from .backtest_progress import BacktestProgressReporter, BacktestProgressUpdate
 from .backtest_history import compare_backtest_suite, list_backtest_suites, load_backtest_run
 from .backtest_suite import BacktestSuiteRunner
@@ -101,14 +105,33 @@ def build_parser() -> argparse.ArgumentParser:
     api_parser.add_argument("--host", default="127.0.0.1")
     api_parser.add_argument("--port", type=int, default=8000)
 
+    dataset_parser = subparsers.add_parser("dataset", help="build and inspect cached historical datasets")
+    dataset_subparsers = dataset_parser.add_subparsers(dest="dataset_command")
+
+    dataset_build_parser = dataset_subparsers.add_parser("build", help="build or reuse a cached dataset")
+    dataset_build_parser.add_argument("--product-id", action="append", dest="product_ids", required=True)
+    dataset_build_parser.add_argument("--start", required=True)
+    dataset_build_parser.add_argument("--end", required=True)
+    dataset_build_parser.add_argument("--granularity", default="ONE_MINUTE", choices=["ONE_MINUTE"])
+    dataset_build_parser.add_argument("--runs-dir", type=Path, default=None)
+
+    dataset_list_parser = dataset_subparsers.add_parser("list", help="list cached datasets")
+    dataset_list_parser.add_argument("--limit", type=int, default=10)
+    dataset_list_parser.add_argument("--runs-dir", type=Path, default=None)
+
+    dataset_show_parser = dataset_subparsers.add_parser("show", help="show one cached dataset")
+    dataset_show_parser.add_argument("--dataset-id", required=True)
+    dataset_show_parser.add_argument("--runs-dir", type=Path, default=None)
+
     backtest_parser = subparsers.add_parser("backtest", help="run and inspect historical backtests")
     backtest_subparsers = backtest_parser.add_subparsers(dest="backtest_command")
 
     backtest_run_parser = backtest_subparsers.add_parser("run", help="launch a historical backtest suite")
-    backtest_run_parser.add_argument("--product-id", action="append", dest="product_ids", required=True)
+    backtest_run_parser.add_argument("--dataset-id", default=None)
+    backtest_run_parser.add_argument("--product-id", action="append", dest="product_ids", default=None)
     backtest_run_parser.add_argument("--strategy-id", action="append", dest="strategy_ids", required=True)
-    backtest_run_parser.add_argument("--start", required=True)
-    backtest_run_parser.add_argument("--end", required=True)
+    backtest_run_parser.add_argument("--start", default=None)
+    backtest_run_parser.add_argument("--end", default=None)
     backtest_run_parser.add_argument("--granularity", default="ONE_MINUTE", choices=["ONE_MINUTE"])
     backtest_run_parser.add_argument("--runs-dir", type=Path, default=None)
     backtest_run_parser.add_argument("--lookback-candles", type=int, default=None)
@@ -162,6 +185,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_preflight(args)
     if args.command == "api":
         return _run_api(args)
+    if args.command == "dataset":
+        return _run_dataset(args)
     if args.command == "backtest":
         return _run_backtest(args)
     if args.command == "live":
@@ -407,6 +432,16 @@ def _run_api(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_dataset(args: argparse.Namespace) -> int:
+    if args.dataset_command == "build":
+        return _build_dataset_command(args)
+    if args.dataset_command == "list":
+        return _list_datasets_command(args)
+    if args.dataset_command == "show":
+        return _show_dataset_command(args)
+    raise SystemExit("choose one of: build, list, show")
+
+
 def _run_backtest(args: argparse.Namespace) -> int:
     if args.backtest_command == "run":
         return _run_backtest_suite(args)
@@ -422,36 +457,20 @@ def _run_backtest(args: argparse.Namespace) -> int:
 def _run_backtest_suite(args: argparse.Namespace) -> int:
     config = _build_backtest_config(args)
     _validate_strategy_ids(args.strategy_ids)
-    start = _parse_iso8601(args.start, field_name="start")
-    end = _parse_iso8601(args.end, field_name="end")
     progress = BacktestProgressReporter.from_env()
     total_runs = len(args.strategy_ids)
     try:
-        if progress is not None:
-            progress.emit(
-                BacktestProgressUpdate(
-                    phase="building_dataset",
-                    phase_message=f"Fetching Coinbase candles for {len(args.product_ids)} products.",
-                    total_runs=total_runs,
-                    completed_runs=0,
-                )
-            )
-        with CoinbasePublicClient() as client:
-            builder = HistoricalDatasetBuilder(
-                client=client,
-                base_runs_dir=config.runtime.runs_dir,
-            )
-            dataset = builder.build_dataset(
-                products=args.product_ids,
-                start=start,
-                end=end,
-                granularity=args.granularity,
-            )
+        dataset, selected_products = _resolve_backtest_dataset(
+            args,
+            config=config,
+            progress=progress,
+            total_runs=total_runs,
+        )
         suite = BacktestSuiteRunner(
             base_runs_dir=config.runtime.runs_dir,
             dataset=dataset,
             config=config,
-            products=args.product_ids,
+            products=selected_products,
         ).run_suite(
             strategy_ids=args.strategy_ids,
             progress_callback=(
@@ -509,6 +528,45 @@ def _run_backtest_suite(args: argparse.Namespace) -> int:
             )
         print(message, file=sys.stderr)
         return 1
+
+
+def _build_dataset_command(args: argparse.Namespace) -> int:
+    runs_dir = args.runs_dir or AppConfig.from_env().runtime.runs_dir
+    start = _parse_iso8601(args.start, field_name="start")
+    end = _parse_iso8601(args.end, field_name="end")
+    try:
+        with CoinbasePublicClient() as client:
+            builder = HistoricalDatasetBuilder(client=client, base_runs_dir=runs_dir)
+            dataset = builder.build_dataset(
+                products=args.product_ids,
+                start=start,
+                end=end,
+                granularity=args.granularity,
+            )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    payload = load_dataset_summary(runs_dir, dataset_id=dataset.dataset_id)
+    print(json.dumps(asdict(payload), indent=2, sort_keys=True))
+    return 0
+
+
+def _list_datasets_command(args: argparse.Namespace) -> int:
+    runs_dir = args.runs_dir or AppConfig.from_env().runtime.runs_dir
+    payload = [asdict(item) for item in list_dataset_summaries(runs_dir, limit=args.limit)]
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0
+
+
+def _show_dataset_command(args: argparse.Namespace) -> int:
+    runs_dir = args.runs_dir or AppConfig.from_env().runtime.runs_dir
+    try:
+        payload = load_dataset_summary(runs_dir, dataset_id=args.dataset_id)
+    except FileNotFoundError as exc:
+        raise SystemExit(str(exc)) from exc
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise SystemExit(f"invalid dataset artifacts for: {args.dataset_id}") from exc
+    print(json.dumps(asdict(payload), indent=2, sort_keys=True))
+    return 0
 
 
 def _list_backtest_suites(args: argparse.Namespace) -> int:
@@ -588,6 +646,46 @@ def _build_backtest_config(args: argparse.Namespace) -> AppConfig:
     return config
 
 
+def _resolve_backtest_dataset(
+    args: argparse.Namespace,
+    *,
+    config: AppConfig,
+    progress: BacktestProgressReporter | None,
+    total_runs: int,
+):
+    if args.dataset_id:
+        builder = HistoricalDatasetBuilder(client=_UnusedHistoricalClient(), base_runs_dir=config.runtime.runs_dir)
+        dataset = builder.load_dataset(args.dataset_id)
+        selected_products = args.product_ids or list(dataset.products)
+        return dataset, selected_products
+
+    if not args.product_ids or args.start is None or args.end is None:
+        raise SystemExit("backtest run requires either --dataset-id or --product-id with --start/--end")
+    start = _parse_iso8601(args.start, field_name="start")
+    end = _parse_iso8601(args.end, field_name="end")
+    if progress is not None:
+        progress.emit(
+            BacktestProgressUpdate(
+                phase="building_dataset",
+                phase_message=f"Fetching Coinbase candles for {len(args.product_ids)} products.",
+                total_runs=total_runs,
+                completed_runs=0,
+            )
+        )
+    with CoinbasePublicClient() as client:
+        builder = HistoricalDatasetBuilder(
+            client=client,
+            base_runs_dir=config.runtime.runs_dir,
+        )
+        dataset = builder.build_dataset(
+            products=args.product_ids,
+            start=start,
+            end=end,
+            granularity=args.granularity,
+        )
+    return dataset, args.product_ids
+
+
 def _parse_iso8601(value: str, *, field_name: str) -> datetime:
     normalized = value.replace("Z", "+00:00")
     try:
@@ -612,3 +710,8 @@ def _validate_strategy_ids(strategy_ids: list[str]) -> None:
             validate_strategy_id(strategy_id)
         except ValueError as exc:
             raise SystemExit(str(exc)) from exc
+
+
+class _UnusedHistoricalClient:
+    def fetch_historical_candles(self, *_args, **_kwargs):
+        raise AssertionError("historical client should not be used when loading a cached dataset")
