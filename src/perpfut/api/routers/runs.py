@@ -6,8 +6,14 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
 
-from ..repository import ArtifactError, list_run_summaries, load_artifact_document, load_artifact_list
-from ..schemas import ArtifactDocumentResponse, ArtifactListResponse, RunsListResponse
+from ..repository import (
+    ArtifactError,
+    list_run_summaries,
+    load_artifact_document,
+    load_artifact_list,
+    load_run_analysis,
+)
+from ..schemas import ArtifactDocumentResponse, ArtifactListResponse, RunAnalysisResponse, RunsListResponse
 
 
 router = APIRouter(tags=["runs"])
@@ -53,6 +59,18 @@ def read_run_positions(
     limit: int = Query(default=50, ge=1, le=500),
 ) -> ArtifactListResponse:
     return _build_list_response(run_id, "positions.ndjson", limit=limit)
+
+
+@router.get("/runs/{run_id}/analysis", response_model=RunAnalysisResponse)
+def read_run_analysis(run_id: str) -> RunAnalysisResponse:
+    try:
+        analysis = load_run_analysis(run_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="analysis inputs not found") from exc
+    except ArtifactError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    assert analysis is not None
+    return analysis
 
 
 def _load_document(run_id: str, filename: str) -> dict:
