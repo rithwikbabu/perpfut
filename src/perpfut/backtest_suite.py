@@ -49,6 +49,8 @@ class BacktestSuiteRunner:
     def run_suite(self, *, strategy_ids: Iterable[str]) -> BacktestSuiteResult:
         suite_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         strategy_id_list = tuple(strategy_ids)
+        if not strategy_id_list:
+            raise ValueError("backtest suite requires at least one strategy")
         for strategy_id in strategy_id_list:
             validate_strategy_id(strategy_id)
 

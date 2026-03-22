@@ -93,3 +93,20 @@ def test_backtest_suite_runner_rejects_empty_executable_dataset(tmp_path, monkey
     assert not (tmp_path / "backtests" / "suites").exists()
     runs_dir = tmp_path / "backtests" / "runs"
     assert not runs_dir.exists() or not list(runs_dir.iterdir())
+
+
+def test_backtest_suite_runner_rejects_empty_strategy_list(tmp_path) -> None:
+    runner = BacktestSuiteRunner(
+        base_runs_dir=tmp_path,
+        dataset=_build_dataset(),
+        config=AppConfig.from_env(),
+    )
+
+    try:
+        runner.run_suite(strategy_ids=[])
+    except ValueError as exc:
+        assert "at least one strategy" in str(exc)
+    else:
+        raise AssertionError("expected suite runner to reject empty strategy lists")
+
+    assert not (tmp_path / "backtests" / "suites").exists()
