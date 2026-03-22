@@ -147,7 +147,6 @@ describe("BacktestsShell", () => {
     expect(screen.getByRole("link", { name: "run-2" })).toHaveAttribute("href", "/backtests/run-2");
 
     await userEvent.click(screen.getByRole("button", { name: "SOL-PERP-INTX" }));
-    await userEvent.click(screen.getByRole("button", { name: "intraminute_reversion" }));
     await userEvent.click(screen.getByRole("button", { name: "Launch Backtest Suite" }));
 
     await waitFor(() => expect(mockedStartBacktest).toHaveBeenCalledTimes(1));
@@ -161,6 +160,27 @@ describe("BacktestsShell", () => {
 
     expect(await screen.findByText("Backtest API unavailable")).toBeInTheDocument();
     expect(screen.getByText("backtest api unavailable")).toBeInTheDocument();
+  });
+
+  it("shows a validation warning when a datetime input is cleared", async () => {
+    mockedFetchJson.mockImplementation(async (path: string) => {
+      if (path === "/backtests") {
+        return { items: [], count: 0, active_job: null };
+      }
+      if (path === "/backtest-suites") {
+        return { items: [], count: 0, active_job: null };
+      }
+      throw new Error(`unexpected path ${path}`);
+    });
+
+    renderBacktestsShell();
+
+    expect(await screen.findByText("Start a backtest suite")).toBeInTheDocument();
+    await userEvent.clear(screen.getByLabelText("Start"));
+    await userEvent.click(screen.getByRole("button", { name: "Launch Backtest Suite" }));
+
+    expect(await screen.findByText("Provide both start and end datetimes.")).toBeInTheDocument();
+    expect(mockedStartBacktest).not.toHaveBeenCalled();
   });
 });
 

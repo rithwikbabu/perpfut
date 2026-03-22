@@ -25,7 +25,7 @@ import {
 
 
 const PRODUCT_OPTIONS = ["BTC-PERP-INTX", "ETH-PERP-INTX", "SOL-PERP-INTX"] as const;
-const STRATEGY_OPTIONS = ["momentum", "mean_reversion", "intraminute_reversion"] as const;
+const STRATEGY_OPTIONS = ["momentum", "mean_reversion"] as const;
 
 type ControlFeedback = {
   tone: "success" | "danger" | "warning";
@@ -155,8 +155,15 @@ function formatLocalDateTimeInput(value: Date): string {
   return new Date(value.getTime() - offsetMs).toISOString().slice(0, 16);
 }
 
-function toIsoUtc(value: string): string {
-  return new Date(value).toISOString();
+function toIsoUtc(value: string): string | null {
+  if (!value.trim()) {
+    return null;
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  return parsed.toISOString();
 }
 
 function parseOptionalNumber(value: string): number | undefined {
@@ -276,12 +283,18 @@ export function BacktestsShell() {
       setFeedback({ tone: "warning", message: "Select at least one strategy." });
       return;
     }
+    const startIso = toIsoUtc(form.start);
+    const endIso = toIsoUtc(form.end);
+    if (!startIso || !endIso) {
+      setFeedback({ tone: "warning", message: "Provide both start and end datetimes." });
+      return;
+    }
 
     const request: BacktestRunRequest = {
       productIds: form.productIds,
       strategyIds: form.strategyIds,
-      start: toIsoUtc(form.start),
-      end: toIsoUtc(form.end),
+      start: startIso,
+      end: endIso,
       granularity: "ONE_MINUTE",
       startingCollateralUsdc: parseOptionalNumber(form.startingCollateralUsdc),
       lookbackCandles: parseOptionalNumber(form.lookbackCandles),
