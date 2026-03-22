@@ -429,7 +429,11 @@ export function BacktestsShell() {
               <div className="mono text-[10px] uppercase tracking-[0.28em] text-[var(--warning)]">
                 Selected Dataset
               </div>
-              {selectedDataset ? (
+              {datasets.isLoading ? (
+                <p className="mt-3 text-sm leading-6 text-[var(--muted)]">Loading cached datasets.</p>
+              ) : datasets.error ? (
+                <p className="mt-3 text-sm leading-6 text-[var(--danger)]">{datasets.error.message}</p>
+              ) : selectedDataset ? (
                 <>
                   <div className="mt-3 text-sm text-[var(--text)]">{selectedDataset.datasetId}</div>
                   <p className="mt-2 text-sm leading-6 text-[var(--muted)]">

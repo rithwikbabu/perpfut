@@ -412,7 +412,7 @@ describe("BacktestsShell", () => {
 
     renderBacktestsShell();
 
-    expect(await screen.findByText("Loading cached datasets.")).toBeInTheDocument();
+    expect((await screen.findAllByText("Loading cached datasets.")).length).toBeGreaterThan(0);
     expect(await screen.findByText("Loading completed backtest suites.")).toBeInTheDocument();
     expect(screen.getByText("Loading completed backtest runs.")).toBeInTheDocument();
     expect(screen.getByText("Select a suite to rank strategy candidates.")).toBeInTheDocument();
@@ -434,7 +434,7 @@ describe("BacktestsShell", () => {
 
     renderBacktestsShell();
 
-    expect(await screen.findByText("No cached datasets yet.")).toBeInTheDocument();
+    expect((await screen.findAllByText("No cached datasets yet.")).length).toBeGreaterThan(0);
     expect(await screen.findByText("No completed backtest suites yet.")).toBeInTheDocument();
     expect(screen.getByText("Select a suite to rank strategy candidates.")).toBeInTheDocument();
     expect(screen.getByText("No completed backtest runs yet.")).toBeInTheDocument();
@@ -532,7 +532,8 @@ describe("BacktestsShell", () => {
 
     renderBacktestsShell();
 
-    expect(await screen.findByText("dataset registry unavailable")).toBeInTheDocument();
+    expect((await screen.findAllByText("dataset registry unavailable")).length).toBeGreaterThan(0);
+    expect(screen.queryByText("No cached datasets yet.")).not.toBeInTheDocument();
     expect(screen.getByText("No completed backtest suites yet.")).toBeInTheDocument();
   });
 });
