@@ -2,6 +2,9 @@
 
 `perpfut` exposes a local-only operator API for the Next.js dashboard.
 
+The current dashboard is monitor-first. Read routes are already consumed by the
+UI, while the paper-run control routes are available for the next frontend step.
+
 ## Runtime
 
 - API host: `127.0.0.1:8000`

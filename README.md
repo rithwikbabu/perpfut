@@ -60,8 +60,10 @@ npm ci
 npm run dev
 ```
 
-The frontend polls the API every 2 seconds. It is local-only, exposes paper-run
-controls, and keeps live mode read-only.
+The frontend polls the API every 2 seconds. It is local-only, currently focuses
+on monitoring and artifact drill-down, and keeps live mode read-only. Paper-run
+control routes already exist in the API and will be wired into the UI in the
+next frontend step.
 
 ## Design Principles
 
