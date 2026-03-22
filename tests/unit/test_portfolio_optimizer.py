@@ -70,6 +70,26 @@ def test_optimizer_applies_turnover_costs_to_net_returns() -> None:
         assert net.value == pytest.approx(gross.value - (turnover.value * 0.001))
 
 
+def test_optimizer_turnover_uses_drifted_holdings_not_previous_targets() -> None:
+    sleeves = [
+        load_sleeve_return_stream(_sleeve("drift-a", [0.10, 1.0, 1.0])),
+        load_sleeve_return_stream(_sleeve("drift-b", [0.10, 0.0, 0.0])),
+    ]
+
+    result = optimize_strategy_portfolio(
+        sleeves,
+        config=PortfolioOptimizationConfig(
+            lookback_days=1,
+            max_strategy_weight=1.0,
+            turnover_cost_bps=0.0,
+        ),
+    )
+
+    assert result.weight_history[1].weights == pytest.approx({"drift-a": 0.5, "drift-b": 0.5})
+    assert result.weight_history[2].weights == pytest.approx({"drift-a": 1.0, "drift-b": 0.0})
+    assert result.daily_turnover[2].value == pytest.approx(2.0 / 3.0)
+
+
 def test_optimizer_handles_singular_covariance_with_shrinkage_and_ridge() -> None:
     sleeves = [
         load_sleeve_return_stream(_sleeve("identical-a", [0.01, 0.01, 0.01, 0.01])),
@@ -90,6 +110,27 @@ def test_optimizer_handles_singular_covariance_with_shrinkage_and_ridge() -> Non
     assert len(result.weight_history) == 4
     assert result.weight_history[-1].gross_weight <= 1.0 + 1e-12
     assert result.diagnostics[-1].constraint_status == "optimized"
+
+
+def test_optimizer_falls_back_to_mean_when_covariance_system_is_unsolved() -> None:
+    sleeves = [
+        load_sleeve_return_stream(_sleeve("identical-a", [0.01, 0.02, 0.03])),
+        load_sleeve_return_stream(_sleeve("identical-b", [0.01, 0.02, 0.03])),
+    ]
+
+    result = optimize_strategy_portfolio(
+        sleeves,
+        config=PortfolioOptimizationConfig(
+            lookback_days=2,
+            max_strategy_weight=0.6,
+            covariance_shrinkage=0.0,
+            ridge_penalty=0.0,
+            turnover_cost_bps=0.0,
+        ),
+    )
+
+    assert result.diagnostics[-1].constraint_status == "fallback_mean_only"
+    assert result.weight_history[-1].gross_weight > 0.0
 
 
 def test_optimizer_uses_ordered_utc_day_labels_from_sleeve_artifacts() -> None:
@@ -127,6 +168,63 @@ def test_optimizer_uses_ordered_utc_day_labels_from_sleeve_artifacts() -> None:
 
     assert [point.label for point in result.daily_net_returns] == ["2026-03-01", "2026-03-02"]
     assert [snapshot.date for snapshot in result.weight_history] == ["2026-03-01", "2026-03-02"]
+
+
+def test_optimizer_rejects_non_increasing_daily_labels() -> None:
+    sleeves = [
+        load_sleeve_return_stream(
+            {
+                "strategy_instance_id": "reverse-a",
+                "strategy_id": "momentum",
+                "dataset_id": "dataset-1",
+                "config_fingerprint": "a",
+                "daily_returns": [
+                    {"label": "2026-03-02", "value": 0.01},
+                    {"label": "2026-03-01", "value": 0.02},
+                ],
+            }
+        ),
+        load_sleeve_return_stream(
+            {
+                "strategy_instance_id": "reverse-b",
+                "strategy_id": "mean_reversion",
+                "dataset_id": "dataset-1",
+                "config_fingerprint": "b",
+                "daily_returns": [
+                    {"label": "2026-03-02", "value": 0.03},
+                    {"label": "2026-03-01", "value": -0.01},
+                ],
+            }
+        ),
+    ]
+
+    with pytest.raises(ValueError, match="strictly increasing UTC day labels"):
+        optimize_strategy_portfolio(
+            sleeves,
+            config=PortfolioOptimizationConfig(lookback_days=1, turnover_cost_bps=0.0),
+        )
+
+
+def test_optimizer_rejects_unparseable_daily_labels() -> None:
+    sleeves = [
+        load_sleeve_return_stream(
+            {
+                "strategy_instance_id": "bad-label-a",
+                "strategy_id": "momentum",
+                "dataset_id": "dataset-1",
+                "config_fingerprint": "a",
+                "daily_returns": [
+                    {"label": "03/01/2026", "value": 0.01},
+                ],
+            }
+        )
+    ]
+
+    with pytest.raises(ValueError, match="parseable YYYY-MM-DD daily labels"):
+        optimize_strategy_portfolio(
+            sleeves,
+            config=PortfolioOptimizationConfig(lookback_days=1, turnover_cost_bps=0.0),
+        )
 
 
 def test_load_sleeve_return_stream_validates_payload() -> None:

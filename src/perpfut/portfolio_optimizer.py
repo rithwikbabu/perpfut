@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 import math
 from typing import Any
 
@@ -101,7 +102,7 @@ def optimize_strategy_portfolio(
         [point.value for point in sleeve.daily_returns]
         for sleeve in sleeves
     ]
-    previous_weights = [0.0 for _ in sleeves]
+    current_holdings = [0.0 for _ in sleeves]
     cumulative_value = 1.0
     daily_gross_returns: list[SeriesPoint] = []
     daily_net_returns: list[SeriesPoint] = []
@@ -135,12 +136,19 @@ def optimize_strategy_portfolio(
                 ridge_penalty=optimizer_config.ridge_penalty,
             )
             raw_scores = _solve_linear_system(cov, mu)
+            if raw_scores is None:
+                raw_scores = list(mu)
+                constraint_status = "fallback_mean_only"
+            else:
+                constraint_status = "optimized"
             weights = _project_long_only_weights(
                 raw_scores,
                 max_weight=optimizer_config.max_strategy_weight,
             )
-            constraint_status = "optimized"
-        turnover = sum(abs(weight - previous_weight) for weight, previous_weight in zip(weights, previous_weights))
+        turnover = sum(
+            abs(weight - holding)
+            for weight, holding in zip(weights, current_holdings)
+        )
         gross_return = sum(
             weight * returns_matrix[strategy_index][day_index]
             for strategy_index, weight in enumerate(weights)
@@ -182,7 +190,13 @@ def optimize_strategy_portfolio(
         daily_net_returns.append(SeriesPoint(label=date_label, value=net_return))
         daily_turnover.append(SeriesPoint(label=date_label, value=turnover))
         cumulative_series.append(SeriesPoint(label=date_label, value=cumulative_value))
-        previous_weights = list(weights)
+        current_holdings = _drift_holdings(
+            weights,
+            day_returns=[
+                returns_matrix[strategy_index][day_index]
+                for strategy_index in range(len(sleeves))
+            ],
+        )
 
     return PortfolioOptimizationResult(
         strategy_instance_ids=strategy_instance_ids,
@@ -197,11 +211,24 @@ def optimize_strategy_portfolio(
 
 def _aligned_dates(sleeves: list[StrategySleeveReturnStream]) -> tuple[str, ...]:
     base_dates = [point.label for point in sleeves[0].daily_returns]
+    _validate_ordered_utc_day_labels(base_dates)
     for sleeve in sleeves[1:]:
         dates = [point.label for point in sleeve.daily_returns]
         if dates != base_dates:
             raise ValueError("sleeve return streams must share the same ordered daily date labels")
     return tuple(base_dates)
+
+
+def _validate_ordered_utc_day_labels(labels: list[str]) -> None:
+    parsed_dates: list[date] = []
+    for label in labels:
+        try:
+            parsed_dates.append(date.fromisoformat(label))
+        except ValueError as exc:
+            raise ValueError("sleeve return streams must use parseable YYYY-MM-DD daily labels") from exc
+    for previous, current in zip(parsed_dates, parsed_dates[1:]):
+        if current <= previous:
+            raise ValueError("sleeve return streams must use strictly increasing UTC day labels")
 
 
 def _estimate_covariance(
@@ -291,7 +318,7 @@ def _mean_vector(history: list[list[float]]) -> list[float]:
     ]
 
 
-def _solve_linear_system(matrix: list[list[float]], vector: list[float]) -> list[float]:
+def _solve_linear_system(matrix: list[list[float]], vector: list[float]) -> list[float] | None:
     size = len(vector)
     augmented = [
         [float(matrix[row][column]) for column in range(size)] + [float(vector[row])]
@@ -303,7 +330,7 @@ def _solve_linear_system(matrix: list[list[float]], vector: list[float]) -> list
             key=lambda row_index: abs(augmented[row_index][pivot_index]),
         )
         if math.isclose(augmented[pivot_row][pivot_index], 0.0, abs_tol=1e-12):
-            return [0.0 for _ in range(size)]
+            return None
         if pivot_row != pivot_index:
             augmented[pivot_index], augmented[pivot_row] = augmented[pivot_row], augmented[pivot_index]
         pivot_value = augmented[pivot_index][pivot_index]
@@ -316,6 +343,18 @@ def _solve_linear_system(matrix: list[list[float]], vector: list[float]) -> list
             for column in range(pivot_index, size + 1):
                 augmented[row][column] -= factor * augmented[pivot_index][column]
     return [augmented[row][size] for row in range(size)]
+
+
+def _drift_holdings(target_weights: list[float], *, day_returns: list[float]) -> list[float]:
+    gross_values = [
+        weight * (1.0 + day_return)
+        for weight, day_return in zip(target_weights, day_returns)
+    ]
+    cash_value = max(1.0 - sum(target_weights), 0.0)
+    total_value = cash_value + sum(gross_values)
+    if total_value <= 1e-12:
+        return [0.0 for _ in target_weights]
+    return [value / total_value for value in gross_values]
 
 
 def _parse_series_point(value: Any) -> SeriesPoint:
