@@ -8,6 +8,7 @@ import os
 from dataclasses import asdict
 from pathlib import Path
 
+from .api.server import run_api_server
 from .config import AppConfig
 from .domain import Mode
 from .engine import PaperEngine
@@ -63,6 +64,10 @@ def build_parser() -> argparse.ArgumentParser:
     preflight_parser.add_argument("--runs-dir", type=Path, default=None)
     preflight_parser.add_argument("--preview-quantity", type=float, default=None)
 
+    api_parser = subparsers.add_parser("api", help="run the local operator API service")
+    api_parser.add_argument("--host", default="127.0.0.1")
+    api_parser.add_argument("--port", type=int, default=8000)
+
     return parser
 
 
@@ -83,6 +88,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_reconcile(args)
     if args.command == "preflight":
         return _run_preflight(args)
+    if args.command == "api":
+        return _run_api(args)
     if args.command == "live":
         return _run_live(args)
 
@@ -244,4 +251,9 @@ def _run_live(args: argparse.Namespace) -> int:
         )
         executor.run()
 
+    return 0
+
+
+def _run_api(args: argparse.Namespace) -> int:
+    run_api_server(host=args.host, port=args.port)
     return 0
